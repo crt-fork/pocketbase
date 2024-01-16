@@ -13,6 +13,7 @@ import (
 	"github.com/pocketbase/pocketbase/models"
 	"github.com/pocketbase/pocketbase/models/schema"
 	"github.com/pocketbase/pocketbase/tests"
+	"github.com/pocketbase/pocketbase/tools/filesystem"
 	"github.com/pocketbase/pocketbase/tools/rest"
 	"github.com/pocketbase/pocketbase/tools/types"
 )
@@ -20,7 +21,7 @@ import (
 type testDataFieldScenario struct {
 	name           string
 	data           map[string]any
-	files          []*rest.UploadedFile
+	files          map[string][]*filesystem.File
 	expectedErrors []string
 }
 
@@ -28,7 +29,7 @@ func TestRecordDataValidatorEmptyAndUnknown(t *testing.T) {
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
-	collection, _ := app.Dao().FindCollectionByNameOrId("demo")
+	collection, _ := app.Dao().FindCollectionByNameOrId("demo2")
 	record := models.NewRecord(collection)
 	validator := validators.NewRecordDataValidator(app.Dao(), record, nil)
 
@@ -44,6 +45,8 @@ func TestRecordDataValidatorEmptyAndUnknown(t *testing.T) {
 }
 
 func TestRecordDataValidatorValidateText(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -62,15 +65,17 @@ func TestRecordDataValidatorValidateText(t *testing.T) {
 			Name:     "field2",
 			Required: true,
 			Type:     schema.FieldTypeText,
+			Options: &schema.TextOptions{
+				Pattern: pattern,
+			},
 		},
 		&schema.SchemaField{
 			Name:   "field3",
 			Unique: true,
 			Type:   schema.FieldTypeText,
 			Options: &schema.TextOptions{
-				Min:     &min,
-				Max:     &max,
-				Pattern: pattern,
+				Min: &min,
+				Max: &max,
 			},
 		},
 	)
@@ -80,9 +85,9 @@ func TestRecordDataValidatorValidateText(t *testing.T) {
 
 	// create dummy record (used for the unique check)
 	dummy := models.NewRecord(collection)
-	dummy.SetDataValue("field1", "test")
-	dummy.SetDataValue("field2", "test")
-	dummy.SetDataValue("field3", "test")
+	dummy.Set("field1", "test")
+	dummy.Set("field2", "test")
+	dummy.Set("field3", "test")
 	if err := app.Dao().SaveRecord(dummy); err != nil {
 		t.Fatal(err)
 	}
@@ -99,21 +104,21 @@ func TestRecordDataValidatorValidateText(t *testing.T) {
 			[]string{"field2"},
 		},
 		{
-			"(text) check unique constraint",
-			map[string]any{
-				"field1": "test",
-				"field2": "test",
-				"field3": "test",
-			},
-			nil,
-			[]string{"field3"},
-		},
-		{
 			"(text) check min constraint",
 			map[string]any{
 				"field1": "test",
 				"field2": "test",
 				"field3": strings.Repeat("a", min-1),
+			},
+			nil,
+			[]string{"field3"},
+		},
+		{
+			"(text) check min constraint with multi-bytes char",
+			map[string]any{
+				"field1": "test",
+				"field2": "test",
+				"field3": "𝌆", // 4 bytes should be counted as 1 char
 			},
 			nil,
 			[]string{"field3"},
@@ -129,14 +134,24 @@ func TestRecordDataValidatorValidateText(t *testing.T) {
 			[]string{"field3"},
 		},
 		{
+			"(text) check max constraint with multi-bytes chars",
+			map[string]any{
+				"field1": "test",
+				"field2": "test",
+				"field3": strings.Repeat("𝌆", max), // shouldn't exceed the max limit even though max*4bytes chars are used
+			},
+			nil,
+			[]string{},
+		},
+		{
 			"(text) check pattern constraint",
 			map[string]any{
 				"field1": nil,
-				"field2": "test",
-				"field3": "test!",
+				"field2": "test!",
+				"field3": "test",
 			},
 			nil,
-			[]string{"field3"},
+			[]string{"field2"},
 		},
 		{
 			"(text) valid data (only required)",
@@ -168,7 +183,7 @@ func TestRecordDataValidatorValidateNumber(t *testing.T) {
 	// create new test collection
 	collection := &models.Collection{}
 	collection.Name = "validate_test"
-	min := 0.0
+	min := 2.0
 	max := 150.0
 	collection.Schema = schema.NewSchema(
 		&schema.SchemaField{
@@ -189,6 +204,13 @@ func TestRecordDataValidatorValidateNumber(t *testing.T) {
 				Max: &max,
 			},
 		},
+		&schema.SchemaField{
+			Name: "field4",
+			Type: schema.FieldTypeNumber,
+			Options: &schema.NumberOptions{
+				NoDecimal: true,
+			},
+		},
 	)
 	if err := app.Dao().SaveCollection(collection); err != nil {
 		t.Fatal(err)
@@ -196,9 +218,9 @@ func TestRecordDataValidatorValidateNumber(t *testing.T) {
 
 	// create dummy record (used for the unique check)
 	dummy := models.NewRecord(collection)
-	dummy.SetDataValue("field1", 123)
-	dummy.SetDataValue("field2", 123)
-	dummy.SetDataValue("field3", 123)
+	dummy.Set("field1", 123)
+	dummy.Set("field2", 123)
+	dummy.Set("field3", 123)
 	if err := app.Dao().SaveRecord(dummy); err != nil {
 		t.Fatal(err)
 	}
@@ -210,6 +232,7 @@ func TestRecordDataValidatorValidateNumber(t *testing.T) {
 				"field1": nil,
 				"field2": nil,
 				"field3": nil,
+				"field4": nil,
 			},
 			nil,
 			[]string{"field2"},
@@ -220,19 +243,10 @@ func TestRecordDataValidatorValidateNumber(t *testing.T) {
 				"field1": "invalid",
 				"field2": "invalid",
 				"field3": "invalid",
+				"field4": "invalid",
 			},
 			nil,
 			[]string{"field2"},
-		},
-		{
-			"(number) check unique constraint",
-			map[string]any{
-				"field1": 123,
-				"field2": 123,
-				"field3": 123,
-			},
-			nil,
-			[]string{"field3"},
 		},
 		{
 			"(number) check min constraint",
@@ -245,6 +259,15 @@ func TestRecordDataValidatorValidateNumber(t *testing.T) {
 			[]string{"field3"},
 		},
 		{
+			"(number) check min with zero-default",
+			map[string]any{
+				"field2": 1,
+				"field3": 0,
+			},
+			nil,
+			[]string{},
+		},
+		{
 			"(number) check max constraint",
 			map[string]any{
 				"field1": nil,
@@ -253,6 +276,15 @@ func TestRecordDataValidatorValidateNumber(t *testing.T) {
 			},
 			nil,
 			[]string{"field3"},
+		},
+		{
+			"(number) check NoDecimal",
+			map[string]any{
+				"field2": 1,
+				"field4": 456.789,
+			},
+			nil,
+			[]string{"field4"},
 		},
 		{
 			"(number) valid data (only required)",
@@ -268,6 +300,7 @@ func TestRecordDataValidatorValidateNumber(t *testing.T) {
 				"field1": nil,
 				"field2": 123, // test value cast
 				"field3": max,
+				"field4": 456,
 			},
 			nil,
 			[]string{},
@@ -307,9 +340,9 @@ func TestRecordDataValidatorValidateBool(t *testing.T) {
 
 	// create dummy record (used for the unique check)
 	dummy := models.NewRecord(collection)
-	dummy.SetDataValue("field1", false)
-	dummy.SetDataValue("field2", true)
-	dummy.SetDataValue("field3", true)
+	dummy.Set("field1", false)
+	dummy.Set("field2", true)
+	dummy.Set("field3", true)
 	if err := app.Dao().SaveRecord(dummy); err != nil {
 		t.Fatal(err)
 	}
@@ -334,16 +367,6 @@ func TestRecordDataValidatorValidateBool(t *testing.T) {
 			},
 			nil,
 			[]string{"field2"},
-		},
-		{
-			"(bool) check unique constraint",
-			map[string]any{
-				"field1": true,
-				"field2": true,
-				"field3": true,
-			},
-			nil,
-			[]string{"field3"},
 		},
 		{
 			"(bool) valid data (only required)",
@@ -403,9 +426,9 @@ func TestRecordDataValidatorValidateEmail(t *testing.T) {
 
 	// create dummy record (used for the unique check)
 	dummy := models.NewRecord(collection)
-	dummy.SetDataValue("field1", "test@demo.com")
-	dummy.SetDataValue("field2", "test@test.com")
-	dummy.SetDataValue("field3", "test@example.com")
+	dummy.Set("field1", "test@demo.com")
+	dummy.Set("field2", "test@test.com")
+	dummy.Set("field3", "test@example.com")
 	if err := app.Dao().SaveRecord(dummy); err != nil {
 		t.Fatal(err)
 	}
@@ -430,16 +453,6 @@ func TestRecordDataValidatorValidateEmail(t *testing.T) {
 			},
 			nil,
 			[]string{"field1", "field2", "field3"},
-		},
-		{
-			"(email) check unique constraint",
-			map[string]any{
-				"field1": "test@example.com",
-				"field2": "test@test.com",
-				"field3": "test@example.com",
-			},
-			nil,
-			[]string{"field3"},
 		},
 		{
 			"(email) check ExceptDomains constraint",
@@ -519,9 +532,9 @@ func TestRecordDataValidatorValidateUrl(t *testing.T) {
 
 	// create dummy record (used for the unique check)
 	dummy := models.NewRecord(collection)
-	dummy.SetDataValue("field1", "http://demo.com")
-	dummy.SetDataValue("field2", "http://test.com")
-	dummy.SetDataValue("field3", "http://example.com")
+	dummy.Set("field1", "http://demo.com")
+	dummy.Set("field2", "http://test.com")
+	dummy.Set("field3", "http://example.com")
 	if err := app.Dao().SaveRecord(dummy); err != nil {
 		t.Fatal(err)
 	}
@@ -546,16 +559,6 @@ func TestRecordDataValidatorValidateUrl(t *testing.T) {
 			},
 			nil,
 			[]string{"field1", "field3"},
-		},
-		{
-			"(url) check unique constraint",
-			map[string]any{
-				"field1": "http://example.com",
-				"field2": "http://test.com",
-				"field3": "http://example.com",
-			},
-			nil,
-			[]string{"field3"},
 		},
 		{
 			"(url) check ExceptDomains constraint",
@@ -647,9 +650,9 @@ func TestRecordDataValidatorValidateDate(t *testing.T) {
 
 	// create dummy record (used for the unique check)
 	dummy := models.NewRecord(collection)
-	dummy.SetDataValue("field1", "2022-01-01 01:01:01")
-	dummy.SetDataValue("field2", "2029-01-01 01:01:01.123")
-	dummy.SetDataValue("field3", "2029-01-01 01:01:01.123")
+	dummy.Set("field1", "2022-01-01 01:01:01")
+	dummy.Set("field2", "2029-01-01 01:01:01.123")
+	dummy.Set("field3", "2029-01-01 01:01:01.123")
 	if err := app.Dao().SaveRecord(dummy); err != nil {
 		t.Fatal(err)
 	}
@@ -684,16 +687,6 @@ func TestRecordDataValidatorValidateDate(t *testing.T) {
 			},
 			nil,
 			[]string{"field2"},
-		},
-		{
-			"(date) check unique constraint",
-			map[string]any{
-				"field1": "2029-01-01 01:01:01.123",
-				"field2": "2029-01-01 01:01:01.123",
-				"field3": "2029-01-01 01:01:01.123",
-			},
-			nil,
-			[]string{"field3"},
 		},
 		{
 			"(date) check min date constraint",
@@ -779,9 +772,9 @@ func TestRecordDataValidatorValidateSelect(t *testing.T) {
 
 	// create dummy record (used for the unique check)
 	dummy := models.NewRecord(collection)
-	dummy.SetDataValue("field1", "a")
-	dummy.SetDataValue("field2", []string{"a", "b"})
-	dummy.SetDataValue("field3", []string{"a", "b", "c"})
+	dummy.Set("field1", "a")
+	dummy.Set("field2", []string{"a", "b"})
+	dummy.Set("field3", []string{"a", "b", "c"})
 	if err := app.Dao().SaveRecord(dummy); err != nil {
 		t.Fatal(err)
 	}
@@ -813,26 +806,6 @@ func TestRecordDataValidatorValidateSelect(t *testing.T) {
 				"field1": "a",
 				"field2": "a",
 				"field3": "a",
-			},
-			nil,
-			[]string{},
-		},
-		{
-			"(select) check unique constraint",
-			map[string]any{
-				"field1": "a",
-				"field2": "b",
-				"field3": []string{"a", "b", "c"},
-			},
-			nil,
-			[]string{"field3"},
-		},
-		{
-			"(select) check unique constraint - same elements but different order",
-			map[string]any{
-				"field1": "a",
-				"field2": "b",
-				"field3": []string{"a", "c", "b"},
 			},
 			nil,
 			[]string{},
@@ -891,16 +864,25 @@ func TestRecordDataValidatorValidateJson(t *testing.T) {
 		&schema.SchemaField{
 			Name: "field1",
 			Type: schema.FieldTypeJson,
+			Options: &schema.JsonOptions{
+				MaxSize: 10,
+			},
 		},
 		&schema.SchemaField{
 			Name:     "field2",
 			Required: true,
 			Type:     schema.FieldTypeJson,
+			Options: &schema.JsonOptions{
+				MaxSize: 9999,
+			},
 		},
 		&schema.SchemaField{
 			Name:   "field3",
 			Unique: true,
 			Type:   schema.FieldTypeJson,
+			Options: &schema.JsonOptions{
+				MaxSize: 9999,
+			},
 		},
 	)
 	if err := app.Dao().SaveCollection(collection); err != nil {
@@ -909,9 +891,9 @@ func TestRecordDataValidatorValidateJson(t *testing.T) {
 
 	// create dummy record (used for the unique check)
 	dummy := models.NewRecord(collection)
-	dummy.SetDataValue("field1", `{"test":123}`)
-	dummy.SetDataValue("field2", `{"test":123}`)
-	dummy.SetDataValue("field3", `{"test":123}`)
+	dummy.Set("field1", `{"test":123}`)
+	dummy.Set("field2", `{"test":123}`)
+	dummy.Set("field3", `{"test":123}`)
 	if err := app.Dao().SaveRecord(dummy); err != nil {
 		t.Fatal(err)
 	}
@@ -955,7 +937,7 @@ func TestRecordDataValidatorValidateJson(t *testing.T) {
 				"field3": []string{},
 			},
 			nil,
-			[]string{},
+			[]string{"field2"},
 		},
 		{
 			"(json) check required constraint - zero map",
@@ -965,27 +947,36 @@ func TestRecordDataValidatorValidateJson(t *testing.T) {
 				"field3": map[string]string{},
 			},
 			nil,
+			[]string{"field2"},
+		},
+		{
+			"(json) check MaxSize constraint",
+			map[string]any{
+				"field1": `"123456789"`, // max 10bytes
+				"field2": 123,
+			},
+			nil,
+			[]string{"field1"},
+		},
+		{
+			"(json) check json text invalid obj, array and number normalizations",
+			map[string]any{
+				"field1": `[1 2 3]`,
+				"field2": `{a: 123}`,
+				"field3": `123.456 abc`,
+			},
+			nil,
 			[]string{},
 		},
 		{
-			"(json) check unique constraint",
+			"(json) check json text reserved literals normalizations",
 			map[string]any{
-				"field1": `{"test":123}`,
-				"field2": `{"test":123}`,
-				"field3": map[string]any{"test": 123},
+				"field1": `true`,
+				"field2": `false`,
+				"field3": `null`,
 			},
 			nil,
-			[]string{"field3"},
-		},
-		{
-			"(json) check json text validator",
-			map[string]any{
-				"field1": `[1, 2, 3`,
-				"field2": `invalid`,
-				"field3": `null`, // valid
-			},
-			nil,
-			[]string{"field1", "field2"},
+			[]string{},
 		},
 		{
 			"(json) valid data - only required fields",
@@ -998,9 +989,9 @@ func TestRecordDataValidatorValidateJson(t *testing.T) {
 		{
 			"(json) valid data - all fields with normalizations",
 			map[string]any{
-				"field1": []string{"a", "b", "c"},
+				"field1": `"12345678"`,
 				"field2": 123,
-				"field3": `"test"`,
+				"field3": []string{"a", "b", "c"},
 			},
 			nil,
 			[]string{},
@@ -1077,30 +1068,38 @@ func TestRecordDataValidatorValidateFile(t *testing.T) {
 			"check MaxSelect constraint",
 			map[string]any{
 				"field1": "test1",
-				"field2": []string{"test1", testFiles[0].Name(), testFiles[3].Name()},
+				"field2": []string{"test1", testFiles[0].Name, testFiles[3].Name},
 				"field3": []string{"test1", "test2", "test3", "test4"},
 			},
-			[]*rest.UploadedFile{testFiles[0], testFiles[1], testFiles[2]},
+			map[string][]*filesystem.File{
+				"field2": {testFiles[0], testFiles[3]},
+			},
 			[]string{"field2", "field3"},
 		},
 		{
 			"check MaxSize constraint",
 			map[string]any{
-				"field1": testFiles[0].Name(),
-				"field2": []string{"test1", testFiles[0].Name()},
+				"field1": testFiles[0].Name,
+				"field2": []string{"test1", testFiles[0].Name},
 				"field3": []string{"test1", "test2", "test3"},
 			},
-			[]*rest.UploadedFile{testFiles[0], testFiles[1], testFiles[2]},
+			map[string][]*filesystem.File{
+				"field1": {testFiles[0]},
+				"field2": {testFiles[0]},
+			},
 			[]string{"field1"},
 		},
 		{
 			"check MimeTypes constraint",
 			map[string]any{
 				"field1": "test1",
-				"field2": []string{"test1", testFiles[0].Name()},
-				"field3": []string{testFiles[1].Name(), testFiles[2].Name()},
+				"field2": []string{"test1", testFiles[0].Name},
+				"field3": []string{testFiles[1].Name, testFiles[2].Name},
 			},
-			[]*rest.UploadedFile{testFiles[0], testFiles[1], testFiles[2]},
+			map[string][]*filesystem.File{
+				"field2": {testFiles[0], testFiles[1], testFiles[2]},
+				"field3": {testFiles[1], testFiles[2]},
+			},
 			[]string{"field3"},
 		},
 		{
@@ -1117,20 +1116,24 @@ func TestRecordDataValidatorValidateFile(t *testing.T) {
 			"valid data - just new files",
 			map[string]any{
 				"field1": nil,
-				"field2": []string{testFiles[0].Name(), testFiles[1].Name()},
+				"field2": []string{testFiles[0].Name, testFiles[1].Name},
 				"field3": nil,
 			},
-			[]*rest.UploadedFile{testFiles[0], testFiles[1], testFiles[2]},
+			map[string][]*filesystem.File{
+				"field2": {testFiles[0], testFiles[1]},
+			},
 			[]string{},
 		},
 		{
 			"valid data - mixed existing and new files",
 			map[string]any{
 				"field1": "test1",
-				"field2": []string{"test1", testFiles[0].Name()},
+				"field2": []string{"test1", testFiles[0].Name},
 				"field3": "test1", // will be casted
 			},
-			[]*rest.UploadedFile{testFiles[0], testFiles[1], testFiles[2]},
+			map[string][]*filesystem.File{
+				"field2": {testFiles[0], testFiles[1], testFiles[2]},
+			},
 			[]string{},
 		},
 	}
@@ -1142,17 +1145,17 @@ func TestRecordDataValidatorValidateRelation(t *testing.T) {
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
-	demo, _ := app.Dao().FindCollectionByNameOrId("demo4")
+	demo, _ := app.Dao().FindCollectionByNameOrId("demo3")
 
-	// demo4 rel ids
-	relId1 := "b8ba58f9-e2d7-42a0-b0e7-a11efd98236b"
-	relId2 := "df55c8ff-45ef-4c82-8aed-6e2183fe1125"
-	relId3 := "b84cd893-7119-43c9-8505-3c4e22da28a9"
-	relId4 := "054f9f24-0a0a-4e09-87b1-bc7ff2b336a2"
+	// demo3 rel ids
+	relId1 := "mk5fmymtx4wsprk"
+	relId2 := "7nwo8tuiatetxdm"
+	relId3 := "lcl9d87w22ml6jy"
+	relId4 := "1tmknxy2868d869"
 
 	// record rel ids from different collections
-	diffRelId1 := "63c2ab80-84ab-4057-a592-4604a731f78f"
-	diffRelId2 := "2c542824-9de1-42fe-8924-e57c86267760"
+	diffRelId1 := "0yxhwia2amd8gec"
+	diffRelId2 := "llvuca81nly1qls"
 
 	// create new test collection
 	collection := &models.Collection{}
@@ -1162,7 +1165,7 @@ func TestRecordDataValidatorValidateRelation(t *testing.T) {
 			Name: "field1",
 			Type: schema.FieldTypeRelation,
 			Options: &schema.RelationOptions{
-				MaxSelect:    1,
+				MaxSelect:    types.Pointer(1),
 				CollectionId: demo.Id,
 			},
 		},
@@ -1171,7 +1174,7 @@ func TestRecordDataValidatorValidateRelation(t *testing.T) {
 			Required: true,
 			Type:     schema.FieldTypeRelation,
 			Options: &schema.RelationOptions{
-				MaxSelect:    2,
+				MaxSelect:    types.Pointer(2),
 				CollectionId: demo.Id,
 			},
 		},
@@ -1180,7 +1183,7 @@ func TestRecordDataValidatorValidateRelation(t *testing.T) {
 			Unique: true,
 			Type:   schema.FieldTypeRelation,
 			Options: &schema.RelationOptions{
-				MaxSelect:    3,
+				MinSelect:    types.Pointer(2),
 				CollectionId: demo.Id,
 			},
 		},
@@ -1188,7 +1191,7 @@ func TestRecordDataValidatorValidateRelation(t *testing.T) {
 			Name: "field4",
 			Type: schema.FieldTypeRelation,
 			Options: &schema.RelationOptions{
-				MaxSelect:    3,
+				MaxSelect:    types.Pointer(3),
 				CollectionId: "", // missing or non-existing collection id
 			},
 		},
@@ -1199,9 +1202,9 @@ func TestRecordDataValidatorValidateRelation(t *testing.T) {
 
 	// create dummy record (used for the unique check)
 	dummy := models.NewRecord(collection)
-	dummy.SetDataValue("field1", relId1)
-	dummy.SetDataValue("field2", []string{relId1, relId2})
-	dummy.SetDataValue("field3", []string{relId1, relId2, relId3})
+	dummy.Set("field1", relId1)
+	dummy.Set("field2", []string{relId1, relId2})
+	dummy.Set("field3", []string{relId1, relId2, relId3})
 	if err := app.Dao().SaveRecord(dummy); err != nil {
 		t.Fatal(err)
 	}
@@ -1228,11 +1231,10 @@ func TestRecordDataValidatorValidateRelation(t *testing.T) {
 			[]string{"field2"},
 		},
 		{
-			"check unique constraint",
+			"check min constraint",
 			map[string]any{
-				"field1": relId1,
 				"field2": relId2,
-				"field3": []string{relId1, relId2, relId3, relId3}, // repeating values are collapsed
+				"field3": []string{relId1},
 			},
 			nil,
 			[]string{"field3"},
@@ -1254,7 +1256,7 @@ func TestRecordDataValidatorValidateRelation(t *testing.T) {
 				"field3": []string{relId1, relId2, relId3, relId4},
 			},
 			nil,
-			[]string{"field2", "field3"},
+			[]string{"field2"},
 		},
 		{
 			"check with ids from different collections",
@@ -1289,155 +1291,32 @@ func TestRecordDataValidatorValidateRelation(t *testing.T) {
 	checkValidatorErrors(t, app.Dao(), models.NewRecord(collection), scenarios)
 }
 
-func TestRecordDataValidatorValidateUser(t *testing.T) {
-	app, _ := tests.NewTestApp()
-	defer app.Cleanup()
-
-	userId1 := "97cc3d3d-6ba2-383f-b42a-7bc84d27410c"
-	userId2 := "7bc84d27-6ba2-b42a-383f-4197cc3d3d0c"
-	userId3 := "4d0197cc-2b4a-3f83-a26b-d77bc8423d3c"
-	missingUserId := "00000000-84ab-4057-a592-4604a731f78f"
-
-	// create new test collection
-	collection := &models.Collection{}
-	collection.Name = "validate_test"
-	collection.Schema = schema.NewSchema(
-		&schema.SchemaField{
-			Name: "field1",
-			Type: schema.FieldTypeUser,
-			Options: &schema.UserOptions{
-				MaxSelect: 1,
-			},
-		},
-		&schema.SchemaField{
-			Name:     "field2",
-			Required: true,
-			Type:     schema.FieldTypeUser,
-			Options: &schema.UserOptions{
-				MaxSelect: 2,
-			},
-		},
-		&schema.SchemaField{
-			Name:   "field3",
-			Unique: true,
-			Type:   schema.FieldTypeUser,
-			Options: &schema.UserOptions{
-				MaxSelect: 3,
-			},
-		},
-	)
-	if err := app.Dao().SaveCollection(collection); err != nil {
-		t.Fatal(err)
-	}
-
-	// create dummy record (used for the unique check)
-	dummy := models.NewRecord(collection)
-	dummy.SetDataValue("field1", userId1)
-	dummy.SetDataValue("field2", []string{userId1, userId2})
-	dummy.SetDataValue("field3", []string{userId1, userId2, userId3})
-	if err := app.Dao().SaveRecord(dummy); err != nil {
-		t.Fatal(err)
-	}
-
-	scenarios := []testDataFieldScenario{
-		{
-			"check required constraint - nil",
-			map[string]any{
-				"field1": nil,
-				"field2": nil,
-				"field3": nil,
-			},
-			nil,
-			[]string{"field2"},
-		},
-		{
-			"check required constraint - zero id",
-			map[string]any{
-				"field1": "",
-				"field2": "",
-				"field3": "",
-			},
-			nil,
-			[]string{"field2"},
-		},
-		{
-			"check unique constraint",
-			map[string]any{
-				"field1": nil,
-				"field2": userId1,
-				"field3": []string{userId1, userId2, userId3, userId3}, // repeating values are collapsed
-			},
-			nil,
-			[]string{"field3"},
-		},
-		{
-			"check MaxSelect constraint",
-			map[string]any{
-				"field1": []string{userId1, userId2}, // maxSelect is 1 and will be normalized to userId1 only
-				"field2": []string{userId1, userId2, userId3},
-				"field3": []string{userId1, userId3, userId2},
-			},
-			nil,
-			[]string{"field2"},
-		},
-		{
-			"check with mixed existing and nonexisting user ids",
-			map[string]any{
-				"field1": missingUserId,
-				"field2": []string{missingUserId, userId1},
-				"field3": []string{userId1, missingUserId},
-			},
-			nil,
-			[]string{"field1", "field2", "field3"},
-		},
-		{
-			"valid data - only required fields",
-			map[string]any{
-				"field2": []string{userId1, userId2},
-			},
-			nil,
-			[]string{},
-		},
-		{
-			"valid data - all fields with normalization",
-			map[string]any{
-				"field1": []string{userId1, userId2},
-				"field2": userId2,
-				"field3": []string{userId3, userId2, userId1}, // unique is not triggered because the order is different
-			},
-			nil,
-			[]string{},
-		},
-	}
-
-	checkValidatorErrors(t, app.Dao(), models.NewRecord(collection), scenarios)
-}
-
 func checkValidatorErrors(t *testing.T, dao *daos.Dao, record *models.Record, scenarios []testDataFieldScenario) {
 	for i, s := range scenarios {
-		validator := validators.NewRecordDataValidator(dao, record, s.files)
-		result := validator.Validate(s.data)
-
-		prefix := fmt.Sprintf("%d", i)
-		if s.name != "" {
-			prefix = s.name
+		prefix := s.name
+		if prefix == "" {
+			prefix = fmt.Sprintf("%d", i)
 		}
 
-		// parse errors
-		errs, ok := result.(validation.Errors)
-		if !ok && result != nil {
-			t.Errorf("[%s] Failed to parse errors %v", prefix, result)
-			continue
-		}
+		t.Run(prefix, func(t *testing.T) {
+			validator := validators.NewRecordDataValidator(dao, record, s.files)
+			result := validator.Validate(s.data)
 
-		// check errors
-		if len(errs) > len(s.expectedErrors) {
-			t.Errorf("[%s] Expected error keys %v, got %v", prefix, s.expectedErrors, errs)
-		}
-		for _, k := range s.expectedErrors {
-			if _, ok := errs[k]; !ok {
-				t.Errorf("[%s] Missing expected error key %q in %v", prefix, k, errs)
+			// parse errors
+			errs, ok := result.(validation.Errors)
+			if !ok && result != nil {
+				t.Fatalf("Failed to parse errors %v", result)
 			}
-		}
+
+			// check errors
+			if len(errs) > len(s.expectedErrors) {
+				t.Fatalf("Expected error keys %v, got %v", s.expectedErrors, errs)
+			}
+			for _, k := range s.expectedErrors {
+				if _, ok := errs[k]; !ok {
+					t.Fatalf("Missing expected error key %q in %v", k, errs)
+				}
+			}
+		})
 	}
 }

@@ -1,9 +1,10 @@
 <script>
     import { link } from "svelte-spa-router";
     import active from "svelte-spa-router/active";
+    import PageSidebar from "@/components/base/PageSidebar.svelte";
 </script>
 
-<aside class="page-sidebar settings-sidebar">
+<PageSidebar class="settings-sidebar">
     <div class="sidebar-content">
         <div class="sidebar-title">System</div>
         <a href="/settings" class="sidebar-list-item" use:active={{ path: "/settings" }} use:link>
@@ -28,10 +29,18 @@
             <i class="ri-archive-drawer-line" />
             <span class="txt">Files storage</span>
         </a>
+        <a
+            href="/settings/backups"
+            class="sidebar-list-item"
+            use:active={{ path: "/settings/backups/?.*" }}
+            use:link
+        >
+            <i class="ri-archive-line" />
+            <span class="txt">Backups</span>
+        </a>
 
         <div class="sidebar-title">
             <span class="txt">Sync</span>
-            <small class="label label-danger label-sm">Experimental</small>
         </div>
         <a
             href="/settings/export-collections"
@@ -81,4 +90,4 @@
             <span class="txt">Admins</span>
         </a>
     </div>
-</aside>
+</PageSidebar>

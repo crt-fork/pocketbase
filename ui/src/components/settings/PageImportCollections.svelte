@@ -50,7 +50,8 @@
     $: canImport = !isLoadingOldCollections && isValid && hasChanges;
 
     $: idReplacableCollections = newCollections.filter((collection) => {
-        let old = CommonHelper.findByKey(oldCollections, "name", collection.name) ||
+        let old =
+            CommonHelper.findByKey(oldCollections, "name", collection.name) ||
             CommonHelper.findByKey(oldCollections, "id", collection.id);
 
         if (!old) {
@@ -92,7 +93,7 @@
                 delete collection.updated;
             }
         } catch (err) {
-            ApiClient.errorResponseHandler(err);
+            ApiClient.error(err);
         }
 
         isLoadingOldCollections = false;
@@ -149,7 +150,8 @@
 
     function replaceIds() {
         for (let collection of newCollections) {
-            const old = CommonHelper.findByKey(oldCollections, "name", collection.name) ||
+            const old =
+                CommonHelper.findByKey(oldCollections, "name", collection.name) ||
                 CommonHelper.findByKey(oldCollections, "id", collection.id);
 
             if (!old) {
@@ -327,7 +329,8 @@
                                     <span class="label label-warning list-label">Changed</span>
                                     <div class="inline-flex flex-gap-5">
                                         {#if pair.old.name !== pair.new.name}
-                                            <strong class="txt-strikethrough txt-hint">{pair.old.name}</strong>
+                                            <strong class="txt-strikethrough txt-hint">{pair.old.name}</strong
+                                            >
                                             <i class="ri-arrow-right-line txt-sm" />
                                         {/if}
                                         <strong>
@@ -362,7 +365,7 @@
                         </div>
                         <div class="content">
                             <string>
-                                Some of the imported collections shares the same name and/or fields but are
+                                Some of the imported collections share the same name and/or fields but are
                                 imported with different IDs. You can replace them in the import if you want
                                 to.
                             </string>
@@ -379,7 +382,7 @@
 
                 <div class="flex m-t-base">
                     {#if !!schemas}
-                        <button type="button" class="btn btn-secondary link-hint" on:click={() => clear()}>
+                        <button type="button" class="btn btn-transparent link-hint" on:click={() => clear()}>
                             <span class="txt">Clear</span>
                         </button>
                     {/if}

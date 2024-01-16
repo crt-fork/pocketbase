@@ -3,6 +3,7 @@ package daos_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/pocketbase/pocketbase/daos"
 	"github.com/pocketbase/pocketbase/models"
@@ -17,6 +18,180 @@ func TestNew(t *testing.T) {
 
 	if dao.DB() != testApp.DB() {
 		t.Fatal("The 2 db instances are different")
+	}
+}
+
+func TestNewMultiDB(t *testing.T) {
+	testApp, _ := tests.NewTestApp()
+	defer testApp.Cleanup()
+
+	dao := daos.NewMultiDB(testApp.Dao().ConcurrentDB(), testApp.Dao().NonconcurrentDB())
+
+	if dao.DB() != testApp.Dao().ConcurrentDB() {
+		t.Fatal("[db-concurrentDB] The 2 db instances are different")
+	}
+
+	if dao.ConcurrentDB() != testApp.Dao().ConcurrentDB() {
+		t.Fatal("[concurrentDB-concurrentDB] The 2 db instances are different")
+	}
+
+	if dao.NonconcurrentDB() != testApp.Dao().NonconcurrentDB() {
+		t.Fatal("[nonconcurrentDB-nonconcurrentDB] The 2 db instances are different")
+	}
+}
+
+func TestDaoClone(t *testing.T) {
+	testApp, _ := tests.NewTestApp()
+	defer testApp.Cleanup()
+
+	hookCalls := map[string]int{}
+
+	dao := daos.NewMultiDB(testApp.Dao().ConcurrentDB(), testApp.Dao().NonconcurrentDB())
+	dao.MaxLockRetries = 1
+	dao.ModelQueryTimeout = 2
+	dao.BeforeDeleteFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
+		hookCalls["BeforeDeleteFunc"]++
+		return action()
+	}
+	dao.BeforeUpdateFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
+		hookCalls["BeforeUpdateFunc"]++
+		return action()
+	}
+	dao.BeforeCreateFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
+		hookCalls["BeforeCreateFunc"]++
+		return action()
+	}
+	dao.AfterDeleteFunc = func(eventDao *daos.Dao, m models.Model) error {
+		hookCalls["AfterDeleteFunc"]++
+		return nil
+	}
+	dao.AfterUpdateFunc = func(eventDao *daos.Dao, m models.Model) error {
+		hookCalls["AfterUpdateFunc"]++
+		return nil
+	}
+	dao.AfterCreateFunc = func(eventDao *daos.Dao, m models.Model) error {
+		hookCalls["AfterCreateFunc"]++
+		return nil
+	}
+
+	clone := dao.Clone()
+	clone.MaxLockRetries = 3
+	clone.ModelQueryTimeout = 4
+	clone.AfterCreateFunc = func(eventDao *daos.Dao, m models.Model) error {
+		hookCalls["NewAfterCreateFunc"]++
+		return nil
+	}
+
+	if dao.MaxLockRetries == clone.MaxLockRetries {
+		t.Fatal("Expected different MaxLockRetries")
+	}
+
+	if dao.ModelQueryTimeout == clone.ModelQueryTimeout {
+		t.Fatal("Expected different ModelQueryTimeout")
+	}
+
+	emptyAction := func() error { return nil }
+
+	// trigger hooks
+	dao.BeforeDeleteFunc(nil, nil, emptyAction)
+	dao.BeforeUpdateFunc(nil, nil, emptyAction)
+	dao.BeforeCreateFunc(nil, nil, emptyAction)
+	dao.AfterDeleteFunc(nil, nil)
+	dao.AfterUpdateFunc(nil, nil)
+	dao.AfterCreateFunc(nil, nil)
+	clone.BeforeDeleteFunc(nil, nil, emptyAction)
+	clone.BeforeUpdateFunc(nil, nil, emptyAction)
+	clone.BeforeCreateFunc(nil, nil, emptyAction)
+	clone.AfterDeleteFunc(nil, nil)
+	clone.AfterUpdateFunc(nil, nil)
+	clone.AfterCreateFunc(nil, nil)
+
+	expectations := []struct {
+		hook  string
+		total int
+	}{
+		{"BeforeDeleteFunc", 2},
+		{"BeforeUpdateFunc", 2},
+		{"BeforeCreateFunc", 2},
+		{"AfterDeleteFunc", 2},
+		{"AfterUpdateFunc", 2},
+		{"AfterCreateFunc", 1},
+		{"NewAfterCreateFunc", 1},
+	}
+
+	for _, e := range expectations {
+		if hookCalls[e.hook] != e.total {
+			t.Errorf("Expected %s to be caleed %d", e.hook, e.total)
+		}
+	}
+}
+
+func TestDaoWithoutHooks(t *testing.T) {
+	testApp, _ := tests.NewTestApp()
+	defer testApp.Cleanup()
+
+	hookCalls := map[string]int{}
+
+	dao := daos.NewMultiDB(testApp.Dao().ConcurrentDB(), testApp.Dao().NonconcurrentDB())
+	dao.MaxLockRetries = 1
+	dao.ModelQueryTimeout = 2
+	dao.BeforeDeleteFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
+		hookCalls["BeforeDeleteFunc"]++
+		return action()
+	}
+	dao.BeforeUpdateFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
+		hookCalls["BeforeUpdateFunc"]++
+		return action()
+	}
+	dao.BeforeCreateFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
+		hookCalls["BeforeCreateFunc"]++
+		return action()
+	}
+	dao.AfterDeleteFunc = func(eventDao *daos.Dao, m models.Model) error {
+		hookCalls["AfterDeleteFunc"]++
+		return nil
+	}
+	dao.AfterUpdateFunc = func(eventDao *daos.Dao, m models.Model) error {
+		hookCalls["AfterUpdateFunc"]++
+		return nil
+	}
+	dao.AfterCreateFunc = func(eventDao *daos.Dao, m models.Model) error {
+		hookCalls["AfterCreateFunc"]++
+		return nil
+	}
+
+	new := dao.WithoutHooks()
+
+	if new.MaxLockRetries != dao.MaxLockRetries {
+		t.Fatalf("Expected MaxLockRetries %d, got %d", new.Clone().MaxLockRetries, dao.MaxLockRetries)
+	}
+
+	if new.ModelQueryTimeout != dao.ModelQueryTimeout {
+		t.Fatalf("Expected ModelQueryTimeout %d, got %d", new.Clone().ModelQueryTimeout, dao.ModelQueryTimeout)
+	}
+
+	if new.BeforeDeleteFunc != nil {
+		t.Fatal("Expected BeforeDeleteFunc to be nil")
+	}
+
+	if new.BeforeUpdateFunc != nil {
+		t.Fatal("Expected BeforeUpdateFunc to be nil")
+	}
+
+	if new.BeforeCreateFunc != nil {
+		t.Fatal("Expected BeforeCreateFunc to be nil")
+	}
+
+	if new.AfterDeleteFunc != nil {
+		t.Fatal("Expected AfterDeleteFunc to be nil")
+	}
+
+	if new.AfterUpdateFunc != nil {
+		t.Fatal("Expected AfterUpdateFunc to be nil")
+	}
+
+	if new.AfterCreateFunc != nil {
+		t.Fatal("Expected AfterCreateFunc to be nil")
 	}
 }
 
@@ -35,8 +210,8 @@ func TestDaoModelQuery(t *testing.T) {
 			"SELECT {{_collections}}.* FROM `_collections`",
 		},
 		{
-			&models.User{},
-			"SELECT {{_users}}.* FROM `_users`",
+			&models.Admin{},
+			"SELECT {{_admins}}.* FROM `_admins`",
 		},
 		{
 			&models.Request{},
@@ -52,6 +227,24 @@ func TestDaoModelQuery(t *testing.T) {
 	}
 }
 
+func TestDaoModelQueryCancellation(t *testing.T) {
+	testApp, _ := tests.NewTestApp()
+	defer testApp.Cleanup()
+
+	dao := daos.New(testApp.DB())
+
+	m := &models.Admin{}
+
+	if err := dao.ModelQuery(m).One(m); err != nil {
+		t.Fatalf("Failed to execute control query: %v", err)
+	}
+
+	dao.ModelQueryTimeout = 0 * time.Millisecond
+	if err := dao.ModelQuery(m).One(m); err == nil {
+		t.Fatal("Expected to be cancelled, got nil")
+	}
+}
+
 func TestDaoFindById(t *testing.T) {
 	testApp, _ := tests.NewTestApp()
 	defer testApp.Cleanup()
@@ -64,19 +257,19 @@ func TestDaoFindById(t *testing.T) {
 		// missing id
 		{
 			&models.Collection{},
-			"00000000-075d-49fe-9d09-ea7e951000dc",
+			"missing",
 			true,
 		},
 		// existing collection id
 		{
 			&models.Collection{},
-			"3f2888f8-075d-49fe-9d09-ea7e951000dc",
+			"wsmn24bux7wo113",
 			false,
 		},
-		// existing user id
+		// existing admin id
 		{
-			&models.User{},
-			"97cc3d3d-6ba2-383f-b42a-7bc84d27410c",
+			&models.Admin{},
+			"sbmbsdb40jyxf7h",
 			false,
 		},
 	}
@@ -289,19 +482,186 @@ func TestDaoDelete(t *testing.T) {
 	}
 }
 
+func TestDaoRetryCreate(t *testing.T) {
+	testApp, _ := tests.NewTestApp()
+	defer testApp.Cleanup()
+
+	// init mock retry dao
+	retryBeforeCreateHookCalls := 0
+	retryAfterCreateHookCalls := 0
+	retryDao := daos.New(testApp.DB())
+	retryDao.BeforeCreateFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
+		retryBeforeCreateHookCalls++
+		return errors.New("database is locked")
+	}
+	retryDao.AfterCreateFunc = func(eventDao *daos.Dao, m models.Model) error {
+		retryAfterCreateHookCalls++
+		return nil
+	}
+
+	model := &models.Admin{Email: "new@example.com"}
+	if err := retryDao.Save(model); err != nil {
+		t.Fatalf("Expected nil after retry, got error: %v", err)
+	}
+
+	// the before hook is expected to be called only once because
+	// it is ignored after the first "database is locked" error
+	if retryBeforeCreateHookCalls != 1 {
+		t.Fatalf("Expected before hook calls to be 1, got %d", retryBeforeCreateHookCalls)
+	}
+
+	if retryAfterCreateHookCalls != 1 {
+		t.Fatalf("Expected after hook calls to be 1, got %d", retryAfterCreateHookCalls)
+	}
+
+	// with non-locking error
+	retryBeforeCreateHookCalls = 0
+	retryAfterCreateHookCalls = 0
+	retryDao.BeforeCreateFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
+		retryBeforeCreateHookCalls++
+		return errors.New("non-locking error")
+	}
+
+	dummy := &models.Admin{Email: "test@example.com"}
+	if err := retryDao.Save(dummy); err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	if retryBeforeCreateHookCalls != 1 {
+		t.Fatalf("Expected before hook calls to be 1, got %d", retryBeforeCreateHookCalls)
+	}
+
+	if retryAfterCreateHookCalls != 0 {
+		t.Fatalf("Expected after hook calls to be 0, got %d", retryAfterCreateHookCalls)
+	}
+}
+
+func TestDaoRetryUpdate(t *testing.T) {
+	testApp, _ := tests.NewTestApp()
+	defer testApp.Cleanup()
+
+	model, err := testApp.Dao().FindAdminByEmail("test@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// init mock retry dao
+	retryBeforeUpdateHookCalls := 0
+	retryAfterUpdateHookCalls := 0
+	retryDao := daos.New(testApp.DB())
+	retryDao.BeforeUpdateFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
+		retryBeforeUpdateHookCalls++
+		return errors.New("database is locked")
+	}
+	retryDao.AfterUpdateFunc = func(eventDao *daos.Dao, m models.Model) error {
+		retryAfterUpdateHookCalls++
+		return nil
+	}
+
+	if err := retryDao.Save(model); err != nil {
+		t.Fatalf("Expected nil after retry, got error: %v", err)
+	}
+
+	// the before hook is expected to be called only once because
+	// it is ignored after the first "database is locked" error
+	if retryBeforeUpdateHookCalls != 1 {
+		t.Fatalf("Expected before hook calls to be 1, got %d", retryBeforeUpdateHookCalls)
+	}
+
+	if retryAfterUpdateHookCalls != 1 {
+		t.Fatalf("Expected after hook calls to be 1, got %d", retryAfterUpdateHookCalls)
+	}
+
+	// with non-locking error
+	retryBeforeUpdateHookCalls = 0
+	retryAfterUpdateHookCalls = 0
+	retryDao.BeforeUpdateFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
+		retryBeforeUpdateHookCalls++
+		return errors.New("non-locking error")
+	}
+
+	if err := retryDao.Save(model); err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	if retryBeforeUpdateHookCalls != 1 {
+		t.Fatalf("Expected before hook calls to be 1, got %d", retryBeforeUpdateHookCalls)
+	}
+
+	if retryAfterUpdateHookCalls != 0 {
+		t.Fatalf("Expected after hook calls to be 0, got %d", retryAfterUpdateHookCalls)
+	}
+}
+
+func TestDaoRetryDelete(t *testing.T) {
+	testApp, _ := tests.NewTestApp()
+	defer testApp.Cleanup()
+
+	// init mock retry dao
+	retryBeforeDeleteHookCalls := 0
+	retryAfterDeleteHookCalls := 0
+	retryDao := daos.New(testApp.DB())
+	retryDao.BeforeDeleteFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
+		retryBeforeDeleteHookCalls++
+		return errors.New("database is locked")
+	}
+	retryDao.AfterDeleteFunc = func(eventDao *daos.Dao, m models.Model) error {
+		retryAfterDeleteHookCalls++
+		return nil
+	}
+
+	model, _ := retryDao.FindAdminByEmail("test@example.com")
+	if err := retryDao.Delete(model); err != nil {
+		t.Fatalf("Expected nil after retry, got error: %v", err)
+	}
+
+	// the before hook is expected to be called only once because
+	// it is ignored after the first "database is locked" error
+	if retryBeforeDeleteHookCalls != 1 {
+		t.Fatalf("Expected before hook calls to be 1, got %d", retryBeforeDeleteHookCalls)
+	}
+
+	if retryAfterDeleteHookCalls != 1 {
+		t.Fatalf("Expected after hook calls to be 1, got %d", retryAfterDeleteHookCalls)
+	}
+
+	// with non-locking error
+	retryBeforeDeleteHookCalls = 0
+	retryAfterDeleteHookCalls = 0
+	retryDao.BeforeDeleteFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
+		retryBeforeDeleteHookCalls++
+		return errors.New("non-locking error")
+	}
+
+	dummy := &models.Admin{}
+	dummy.RefreshId()
+	dummy.MarkAsNotNew()
+	if err := retryDao.Delete(dummy); err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	if retryBeforeDeleteHookCalls != 1 {
+		t.Fatalf("Expected before hook calls to be 1, got %d", retryBeforeDeleteHookCalls)
+	}
+
+	if retryAfterDeleteHookCalls != 0 {
+		t.Fatalf("Expected after hook calls to be 0, got %d", retryAfterDeleteHookCalls)
+	}
+}
+
 func TestDaoBeforeHooksError(t *testing.T) {
 	testApp, _ := tests.NewTestApp()
 	defer testApp.Cleanup()
 
 	baseDao := testApp.Dao()
 
-	baseDao.BeforeCreateFunc = func(eventDao *daos.Dao, m models.Model) error {
+	baseDao.BeforeCreateFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
 		return errors.New("before_create")
 	}
-	baseDao.BeforeUpdateFunc = func(eventDao *daos.Dao, m models.Model) error {
+	baseDao.BeforeUpdateFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
 		return errors.New("before_update")
 	}
-	baseDao.BeforeDeleteFunc = func(eventDao *daos.Dao, m models.Model) error {
+	baseDao.BeforeDeleteFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
 		return errors.New("before_delete")
 	}
 
@@ -340,27 +700,30 @@ func TestDaoTransactionHooksCallsOnFailure(t *testing.T) {
 
 	baseDao := testApp.Dao()
 
-	baseDao.BeforeCreateFunc = func(eventDao *daos.Dao, m models.Model) error {
+	baseDao.BeforeCreateFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
 		beforeCreateFuncCalls++
-		return nil
+		return action()
 	}
-	baseDao.BeforeUpdateFunc = func(eventDao *daos.Dao, m models.Model) error {
+	baseDao.BeforeUpdateFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
 		beforeUpdateFuncCalls++
-		return nil
+		return action()
 	}
-	baseDao.BeforeDeleteFunc = func(eventDao *daos.Dao, m models.Model) error {
+	baseDao.BeforeDeleteFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
 		beforeDeleteFuncCalls++
-		return nil
+		return action()
 	}
 
-	baseDao.AfterCreateFunc = func(eventDao *daos.Dao, m models.Model) {
+	baseDao.AfterCreateFunc = func(eventDao *daos.Dao, m models.Model) error {
 		afterCreateFuncCalls++
+		return nil
 	}
-	baseDao.AfterUpdateFunc = func(eventDao *daos.Dao, m models.Model) {
+	baseDao.AfterUpdateFunc = func(eventDao *daos.Dao, m models.Model) error {
 		afterUpdateFuncCalls++
+		return nil
 	}
-	baseDao.AfterDeleteFunc = func(eventDao *daos.Dao, m models.Model) {
+	baseDao.AfterDeleteFunc = func(eventDao *daos.Dao, m models.Model) error {
 		afterDeleteFuncCalls++
+		return nil
 	}
 
 	existingModel, _ := testApp.Dao().FindAdminByEmail("test@example.com")
@@ -428,27 +791,30 @@ func TestDaoTransactionHooksCallsOnSuccess(t *testing.T) {
 
 	baseDao := testApp.Dao()
 
-	baseDao.BeforeCreateFunc = func(eventDao *daos.Dao, m models.Model) error {
+	baseDao.BeforeCreateFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
 		beforeCreateFuncCalls++
-		return nil
+		return action()
 	}
-	baseDao.BeforeUpdateFunc = func(eventDao *daos.Dao, m models.Model) error {
+	baseDao.BeforeUpdateFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
 		beforeUpdateFuncCalls++
-		return nil
+		return action()
 	}
-	baseDao.BeforeDeleteFunc = func(eventDao *daos.Dao, m models.Model) error {
+	baseDao.BeforeDeleteFunc = func(eventDao *daos.Dao, m models.Model, action func() error) error {
 		beforeDeleteFuncCalls++
-		return nil
+		return action()
 	}
 
-	baseDao.AfterCreateFunc = func(eventDao *daos.Dao, m models.Model) {
+	baseDao.AfterCreateFunc = func(eventDao *daos.Dao, m models.Model) error {
 		afterCreateFuncCalls++
+		return nil
 	}
-	baseDao.AfterUpdateFunc = func(eventDao *daos.Dao, m models.Model) {
+	baseDao.AfterUpdateFunc = func(eventDao *daos.Dao, m models.Model) error {
 		afterUpdateFuncCalls++
+		return nil
 	}
-	baseDao.AfterDeleteFunc = func(eventDao *daos.Dao, m models.Model) {
+	baseDao.AfterDeleteFunc = func(eventDao *daos.Dao, m models.Model) error {
 		afterDeleteFuncCalls++
+		return nil
 	}
 
 	existingModel, _ := testApp.Dao().FindAdminByEmail("test@example.com")

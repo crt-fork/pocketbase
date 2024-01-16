@@ -1,5 +1,53 @@
 import { DateTime } from "luxon";
 
+const imageExtensions = [
+   ".jpg", ".jpeg", ".png", ".svg",
+   ".gif", ".jfif", ".webp", ".avif",
+];
+
+const videoExtensions = [
+    ".mp4", ".avi", ".mov", ".3gp", ".wmv",
+];
+
+const audioExtensions = [
+    ".aa", ".aac", ".m4v", ".mp3",
+    ".ogg", ".oga", ".mogg", ".amr",
+];
+
+const documentExtensions = [
+    ".pdf", ".doc", ".docx", ".xls",
+    ".xlsx", ".ppt", ".pptx", ".odp",
+    ".odt", ".ods", ".txt",
+];
+
+export const logLevels = [
+    // {
+    //     level: -8,
+    //     label: "TRACE",
+    //     class: "",
+    // },
+    {
+        level: -4,
+        label: "DEBUG",
+        class: "",
+    },
+    {
+        level: 0,
+        label: "INFO",
+        class: "label-success",
+    },
+    {
+        level: 4,
+        label: "WARN",
+        class: "label-warning",
+    },
+    {
+        level: 8,
+        label: "ERROR",
+        class: "label-danger",
+    },
+];
+
 export default class CommonHelper {
     /**
      * Checks whether value is plain object.
@@ -9,6 +57,16 @@ export default class CommonHelper {
      */
     static isObject(value) {
         return value !== null && typeof value === "object" && value.constructor === Object;
+    }
+
+    /**
+     * Deep clones the provided value.
+     *
+     * @param  {Mixed} val
+     * @return {Mixed}
+     */
+    static clone(value) {
+        return typeof structuredClone !== "undefined" ? structuredClone(value) : JSON.parse(JSON.stringify(value));
     }
 
     /**
@@ -28,7 +86,7 @@ export default class CommonHelper {
             (value === "") ||
             (value === null) ||
             (value === "00000000-0000-0000-0000-000000000000") || // zero uuid
-            (value === "0001-01-01T00:00:00Z") || // zero time
+            (value === "0001-01-01 00:00:00.000Z") || // zero datetime
             (value === "0001-01-01") || // zero date
             (typeof value === "undefined") ||
             (Array.isArray(value) && value.length === 0) ||
@@ -49,7 +107,7 @@ export default class CommonHelper {
             tagName === "input" ||
             tagName === "select" ||
             tagName === "textarea" ||
-            element.isContentEditable
+            element?.isContentEditable
         )
     }
 
@@ -67,7 +125,7 @@ export default class CommonHelper {
             tagName === "button" ||
             tagName === "a" ||
             tagName === "details" ||
-            element.tabIndex >= 0
+            element?.tabIndex >= 0
         );
     }
 
@@ -88,7 +146,7 @@ export default class CommonHelper {
     }
 
     /**
-     * Normalizes and returns arr as a valid array instance (if not already).
+     * Normalizes and returns arr as a new array instance.
      *
      * @param  {Array}   arr
      * @param  {Boolean} [allowEmpty]
@@ -96,7 +154,7 @@ export default class CommonHelper {
      */
     static toArray(arr, allowEmpty = false) {
         if (Array.isArray(arr)) {
-            return arr;
+            return arr.slice();
         }
 
         return (allowEmpty || !CommonHelper.isEmpty(arr)) && typeof arr !== "undefined" ? [arr] : [];
@@ -210,10 +268,9 @@ export default class CommonHelper {
     /**
      * Adds or replace an object array element by comparing its key value.
      *
-     * @param  {Array}  objectsArr
-     * @param  {Object} item
-     * @param  {Mixed}  [key]
-     * @return {Array}
+     * @param {Array}  objectsArr
+     * @param {Object} item
+     * @param {Mixed}  [key]
      */
     static pushOrReplaceByKey(objectsArr, item, key = "id") {
         for (let i = objectsArr.length - 1; i >= 0; i--) {
@@ -256,7 +313,7 @@ export default class CommonHelper {
         const result = JSON.parse(JSON.stringify(obj || {}));
 
         for (let prop in result) {
-            if (typeof result[prop] === 'object' && result[prop] !== null) {
+            if (typeof result[prop] === "object" && result[prop] !== null) {
                 result[prop] = CommonHelper.filterRedactedProps(result[prop], mask)
             } else if (result[prop] === mask) {
                 delete result[prop];
@@ -284,7 +341,7 @@ export default class CommonHelper {
      */
     static getNestedVal(data, path, defaultVal = null, delimiter = ".") {
         let result = data || {};
-        let parts  = (path || '').split(delimiter);
+        let parts  = (path || "").split(delimiter);
 
         for (const part of parts) {
             if (
@@ -314,7 +371,7 @@ export default class CommonHelper {
      * @param  {String}       delimiter
      */
     static setByPath(data, path, newValue, delimiter = ".") {
-        if (!CommonHelper.isObject(data) && !Array.isArray(data)) {
+        if (data === null || typeof data !== "object") {
             console.warn("setByPath: data not an object or array.");
             return
         }
@@ -353,7 +410,7 @@ export default class CommonHelper {
      */
     static deleteByPath(data, path, delimiter = ".") {
         let result   = data || {};
-        let parts    = (path || '').split(delimiter);
+        let parts    = (path || "").split(delimiter);
         let lastPart = parts.pop();
 
         for (const part of parts) {
@@ -390,19 +447,43 @@ export default class CommonHelper {
     }
 
     /**
-     * Generates random string (suitable for elements id and keys).
+     * Generates pseudo-random string (suitable for elements id and keys).
      *
      * @param  {Number} [length] Results string length (default 10)
      * @return {String}
      */
-    static randomString(length) {
-        length = length || 10;
-
+    static randomString(length = 10) {
         let result = "";
         let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
         for (let i = 0; i < length; i++) {
             result += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+        }
+
+        return result;
+    }
+
+    /**
+     * Generates cryptographically random secret string
+     * (if crypto is supported, otherwise fallback to randomString).
+     *
+     * @param  {Number} [length] Results string length (default 15)
+     * @return {String}
+     */
+    static randomSecret(length = 15) {
+        if (typeof crypto === "undefined") {
+            return CommonHelper.randomString(length)
+        }
+
+        const arr = new Uint8Array(length);
+        crypto.getRandomValues(arr);
+
+        const alphabet = "-_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"; // 64 to devide "cleanly" 256
+
+        let result = "";
+
+        for (let i = 0; i < length; i++) {
+            result += alphabet.charAt(arr[i] % alphabet.length);
         }
 
         return result;
@@ -438,6 +519,83 @@ export default class CommonHelper {
     }
 
     /**
+     * Trims the matching quotes from the provided value.
+     *
+     * The value will be returned unchanged if `val` is not
+     * wrapped with quotes or it is not string.
+     *
+     * @param  {Mixed} val
+     * @return {Mixed}
+     */
+    static trimQuotedValue(val) {
+        if (
+            typeof val == "string" &&
+            (val[0] == `"`  || val[0] == `'` || val[0] == "`") &&
+            val[0] == val[val.length-1]
+        ) {
+            return val.slice(1, -1);
+        }
+
+        return val
+    }
+
+    /**
+     * Returns the plain text version (aka. strip tags) of the provided string.
+     *
+     * @param  {String} str
+     * @return {String}
+     */
+    static plainText(str) {
+        if (!str) {
+            return "";
+        }
+
+        const doc = new DOMParser().parseFromString(str, "text/html");
+
+        return (doc.body.innerText || "").trim();
+    }
+
+    /**
+     * Truncates the provided text to the specified max characters length.
+     *
+     * @param  {String}  str
+     * @param  {Number}  [length]
+     * @param  {Boolean} [dots]
+     * @return {String}
+     */
+    static truncate(str, length = 150, dots = true) {
+        str = ("" + str);
+
+        if (str.length <= length) {
+            return str;
+        }
+
+        return str.substring(0, length) + (dots ? "..." : "");
+    }
+
+    /**
+     * Returns a new object copy with truncated the large text fields.
+     *
+     * @param  {Object} obj
+     * @return {Object}
+     */
+    static truncateObject(obj) {
+        const truncated = {};
+
+        for (let key in obj) {
+            let value = obj[key];
+
+            if (typeof value === "string") {
+                value = CommonHelper.truncate(value, 150, true);
+            }
+
+            truncated[key] = value;
+        }
+
+        return truncated;
+    }
+
+    /**
      * Normalizes and converts the provided string to a slug.
      *
      * @param  {String} str
@@ -445,47 +603,47 @@ export default class CommonHelper {
      * @param  {Array}  [preserved]
      * @return {String}
      */
-    static slugify(str, delimiter = '_', preserved = ['.', '=', '-']) {
-        if (str === '') {
-            return '';
+    static slugify(str, delimiter = "_", preserved = [".", "=", "-"]) {
+        if (str === "") {
+            return "";
         }
 
         // special characters
         const specialCharsMap = {
-            'a': /а|à|á|å|â/gi,
-            'b': /б/gi,
-            'c': /ц|ç/gi,
-            'd': /д/gi,
-            'e': /е|è|é|ê|ẽ|ë/gi,
-            'f': /ф/gi,
-            'g': /г/gi,
-            'h': /х/gi,
-            'i': /й|и|ì|í|î/gi,
-            'j': /ж/gi,
-            'k': /к/gi,
-            'l': /л/gi,
-            'm': /м/gi,
-            'n': /н|ñ/gi,
-            'o': /о|ò|ó|ô|ø/gi,
-            'p': /п/gi,
-            'q': /я/gi,
-            'r': /р/gi,
-            's': /с/gi,
-            't': /т/gi,
-            'u': /ю|ù|ú|ů|û/gi,
-            'v': /в/gi,
-            'w': /в/gi,
-            'x': /ь/gi,
-            'y': /ъ/gi,
-            'z': /з/gi,
-            'ae': /ä|æ/gi,
-            'oe': /ö/gi,
-            'ue': /ü/gi,
-            'Ae': /Ä/gi,
-            'Ue': /Ü/gi,
-            'Oe': /Ö/gi,
-            'ss': /ß/gi,
-            'and': /&/gi
+            "a": /а|à|á|å|â/gi,
+            "b": /б/gi,
+            "c": /ц|ç/gi,
+            "d": /д/gi,
+            "e": /е|è|é|ê|ẽ|ë/gi,
+            "f": /ф/gi,
+            "g": /г/gi,
+            "h": /х/gi,
+            "i": /й|и|ì|í|î/gi,
+            "j": /ж/gi,
+            "k": /к/gi,
+            "l": /л/gi,
+            "m": /м/gi,
+            "n": /н|ñ/gi,
+            "o": /о|ò|ó|ô|ø/gi,
+            "p": /п/gi,
+            "q": /я/gi,
+            "r": /р/gi,
+            "s": /с/gi,
+            "t": /т/gi,
+            "u": /ю|ù|ú|ů|û/gi,
+            "v": /в/gi,
+            "w": /в/gi,
+            "x": /ь/gi,
+            "y": /ъ/gi,
+            "z": /з/gi,
+            "ae": /ä|æ/gi,
+            "oe": /ö/gi,
+            "ue": /ü/gi,
+            "Ae": /Ä/gi,
+            "Ue": /Ü/gi,
+            "Oe": /Ö/gi,
+            "ss": /ß/gi,
+            "and": /&/gi
         };
 
         // replace special characters
@@ -493,12 +651,10 @@ export default class CommonHelper {
             str = str.replace(specialCharsMap[k], k);
         }
 
-        const slug = str
-            .replace(new RegExp('[' + preserved.join('') + ']', 'g'), ' ') // replace preserved characters with spaces
-            .replace(/[^\w\ ]/gi, '')                                      // replaces all non-alphanumeric with empty string
+        return str
+            .replace(new RegExp('[' + preserved.join("") + ']', 'g'), ' ') // replace preserved characters with spaces
+            .replace(/[^\w\ ]/gi, "")                                      // replaces all non-alphanumeric with empty string
             .replace(/\s+/g, delimiter);                                   // collapse whitespaces and replace with `delimiter`
-
-        return slug.charAt(0).toLowerCase() + slug.slice(1);
     }
 
     /**
@@ -521,8 +677,14 @@ export default class CommonHelper {
      * @return {Array}
      */
     static splitNonEmpty(str, separator = ",") {
-        const items = (str || "").split(separator);
         const result = [];
+
+        const items = (str || "")
+            .replaceAll("\\" + separator, "{_PB_ESCAPED_}")
+            .split(separator)
+            .map((item) => {
+                return item.replaceAll("{_PB_ESCAPED_}", separator);
+            });
 
         for (let item of items) {
             item = item.trim();
@@ -542,16 +704,55 @@ export default class CommonHelper {
      * @return {Array}
      */
     static joinNonEmpty(items, separator = ", ") {
+        items = items || [];
+
         const result = [];
+
+        const trimmedSeparator = separator.length > 1 ? separator.trim() : separator;
 
         for (let item of items) {
             item = typeof item === "string" ? item.trim() : "";
             if (!CommonHelper.isEmpty(item)) {
-                result.push(item);
+                result.push(item.replaceAll(trimmedSeparator, "\\" + trimmedSeparator));
             }
         }
 
         return result.join(separator);
+    }
+
+    /**
+     * Extract the user initials from the provided username or email address
+     * (eg. converts "john.doe@example.com" to "JD").
+     *
+     * @param  {String} str
+     * @return {String}
+     */
+    static getInitials(str) {
+        str = (str || "").split("@")[0].trim();
+
+        if (str.length <= 2) {
+            return str.toUpperCase();
+        }
+
+        const parts = str.split(/[\.\_\-\ ]/);
+
+        if (parts.length >= 2) {
+            return (parts[0][0] + parts[1][0]).toUpperCase();
+        }
+
+        return str[0].toUpperCase();
+    }
+
+    /**
+     * Returns a human readable file size string from size in bytes.
+     *
+     * @param  {Number} size s
+     * @return {String}
+     */
+    static formattedFileSize(size) {
+        const i = size ? Math.floor(Math.log(size) / Math.log(1024)) : 0;
+
+        return (size / Math.pow(1024, i)).toFixed(2) * 1 + " " + ["B", "KB", "MB", "GB", "TB"][i];
     }
 
     /**
@@ -561,11 +762,15 @@ export default class CommonHelper {
      * @return {DateTime}
      */
     static getDateTime(date) {
-        if (typeof date === 'string') {
-            const sFormat = "yyyy-MM-dd HH:mm:ss";
-            const msFormat = "yyyy-MM-dd HH:mm:ss.SSS";
-            const format = date.length === msFormat.length ? msFormat : sFormat;
-            return DateTime.fromFormat(date, format, { zone: 'UTC' });
+        if (typeof date === "string") {
+            const formats = {
+                19: "yyyy-MM-dd HH:mm:ss",
+                23: "yyyy-MM-dd HH:mm:ss.SSS",
+                20: "yyyy-MM-dd HH:mm:ss'Z'",
+                24: "yyyy-MM-dd HH:mm:ss.SSS'Z'",
+            }
+            const format = formats[date.length] || formats[19];
+            return DateTime.fromFormat(date, format, { zone: "UTC" });
         }
 
         return DateTime.fromJSDate(date);
@@ -578,7 +783,7 @@ export default class CommonHelper {
      * @param  {String}      [format] The result format (see https://moment.github.io/luxon/#/parsing?id=table-of-tokens)
      * @return {String}
      */
-    static formatToUTCDate(date, format = 'yyyy-MM-dd HH:mm:ss') {
+    static formatToUTCDate(date, format = "yyyy-MM-dd HH:mm:ss") {
         return CommonHelper.getDateTime(date).toUTC().toFormat(format);
     }
 
@@ -589,7 +794,7 @@ export default class CommonHelper {
      * @param  {String}      [format] The result format (see https://moment.github.io/luxon/#/parsing?id=table-of-tokens)
      * @return {String}
      */
-    static formatToLocalDate(date, format = 'yyyy-MM-dd HH:mm:ss') {
+    static formatToLocalDate(date, format = "yyyy-MM-dd HH:mm:ss") {
         return CommonHelper.getDateTime(date).toLocal().toFormat(format);
     }
 
@@ -612,19 +817,36 @@ export default class CommonHelper {
     }
 
     /**
+     * Forces the browser to start downloading the specified url.
+     *
+     * @param {String} url  The url of the file to download.
+     * @param {String} name The result file name.
+     */
+    static download(url, name) {
+        const tempLink = document.createElement("a");
+        tempLink.setAttribute("href", url);
+        tempLink.setAttribute("download", name);
+        tempLink.setAttribute("target", "_blank");
+        tempLink.click();
+        tempLink.remove();
+    }
+
+    /**
      * Downloads a json file created from the provide object.
      *
      * @param {mixed} obj   The JS object to download.
-     * @param {String} name  The result file name.
+     * @param {String} name The result file name.
      */
     static downloadJson(obj, name) {
-        const encodedObj = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(obj, null, 2));
+        name = name.endsWith(".json") ? name : (name + ".json");
 
-        const tempLink = document.createElement('a');
-        tempLink.setAttribute("href", encodedObj);
-        tempLink.setAttribute("download", name + ".json");
-        tempLink.click();
-        tempLink.remove();
+        const blob = new Blob([JSON.stringify(obj, null, 2)], {
+            type: "application/json"
+        });
+
+        const url = window.URL.createObjectURL(blob);
+
+        CommonHelper.download(url, name)
     }
 
     /**
@@ -634,7 +856,7 @@ export default class CommonHelper {
      * @return {Object}
      */
     static getJWTPayload(jwt) {
-        const raw = (jwt || '').split(".")[1] || '';
+        const raw = (jwt || "").split(".")[1] || "";
         if (raw === "") {
             return {};
         }
@@ -650,13 +872,61 @@ export default class CommonHelper {
     }
 
     /**
-     * Loosely check if a file is an image based on its filename extension.
+     * Loosely check if a file has image extension.
      *
      * @param  {String} filename
      * @return {Boolean}
      */
     static hasImageExtension(filename) {
-        return /\.jpg|\.jpeg|\.png|\.svg|\.gif|\.webp|\.avif$/.test(filename)
+        filename = filename || "";
+        return !!imageExtensions.find((ext) => filename.toLowerCase().endsWith(ext));
+    }
+
+    /**
+     * Loosely check if a file has video extension.
+     *
+     * @param  {String} filename
+     * @return {Boolean}
+     */
+    static hasVideoExtension(filename) {
+        filename = filename || "";
+        return !!videoExtensions.find((ext) => filename.toLowerCase().endsWith(ext));
+    }
+
+    /**
+     * Loosely check if a file has audio extension.
+     *
+     * @param  {String} filename
+     * @return {Boolean}
+     */
+    static hasAudioExtension(filename) {
+        filename = filename || "";
+        return !!audioExtensions.find((ext) => filename.toLowerCase().endsWith(ext));
+    }
+
+    /**
+     * Loosely check if a file has document extension.
+     *
+     * @param  {String} filename
+     * @return {Boolean}
+     */
+    static hasDocumentExtension(filename) {
+        filename = filename || "";
+        return !!documentExtensions.find((ext) => filename.toLowerCase().endsWith(ext));
+    }
+
+    /**
+     * Returns the file type based on its filename.
+     *
+     * @param  {String} filename
+     * @return {String}
+     */
+    static getFileType(filename) {
+        if (CommonHelper.hasImageExtension(filename)) return "image";
+        if (CommonHelper.hasDocumentExtension(filename)) return "document";
+        if (CommonHelper.hasVideoExtension(filename)) return "video";
+        if (CommonHelper.hasAudioExtension(filename)) return "audio";
+        return "file";
     }
 
     /**
@@ -737,24 +1007,6 @@ export default class CommonHelper {
     }
 
     /**
-     * Returns the default Flatpickr initialization options.
-     *
-     * @return {Object}
-     */
-    static defaultFlatpickrOptions() {
-        return {
-            dateFormat: "Y-m-d H:i:S",
-            disableMobile: true,
-            allowInput: true,
-            enableTime: true,
-            time_24hr: true,
-            locale: {
-                firstDayOfWeek: 1,
-            },
-        }
-    }
-
-    /**
      * Returns a dummy collection record object.
      *
      * @param  {Object} collection
@@ -763,20 +1015,38 @@ export default class CommonHelper {
     static dummyCollectionRecord(collection) {
         const fields = collection?.schema || [];
 
+        const isAuth = collection?.type === "auth";
+        const isView = collection?.type === "view";
+
         const dummy = {
-            "@collectionId": collection?.id,
-            "@collectionName": collection?.name,
             "id": "RECORD_ID",
-            "created": "2022-01-01 01:00:00",
-            "updated": "2022-01-01 23:59:59",
+            "collectionId": collection?.id,
+            "collectionName": collection?.name,
         };
+
+        if (isAuth) {
+            dummy["username"] = "username123";
+            dummy["verified"] = false;
+            dummy["emailVisibility"] = true;
+            dummy["email"] = "test@example.com";
+        }
+
+        const hasCreated = !isView || CommonHelper.extractColumnsFromQuery(collection?.options?.query).includes("created");
+        if (hasCreated) {
+            dummy["created"] = "2022-01-01 01:00:00.123Z";
+        }
+
+        const hasUpdated = !isView || CommonHelper.extractColumnsFromQuery(collection?.options?.query).includes("updated");
+        if (hasUpdated) {
+            dummy["updated"] = "2022-01-01 23:59:59.456Z";
+        }
 
         for (const field of fields) {
             let val = null;
-            if (field.type === 'number') {
+            if (field.type === "number") {
                 val = 123;
             } else if (field.type === "date") {
-                val = "2022-01-01 10:00:00";
+                val = "2022-01-01 10:00:00.123Z";
             } else if (field.type === "bool") {
                 val = true;
             } else if (field.type === "email") {
@@ -784,20 +1054,20 @@ export default class CommonHelper {
             } else if (field.type === "url") {
                 val = "https://example.com";
             } else if (field.type === "json") {
-                val = 'JSON (array/object)';
+                val = 'JSON';
             } else if (field.type === "file") {
                 val = 'filename.jpg';
-                if (field.options?.maxSelect > 1) {
+                if (field.options?.maxSelect !== 1) {
                     val = [val];
                 }
             } else if (field.type === "select") {
                 val = field.options?.values?.[0];
-                if (field.options?.maxSelect > 1) {
+                if (field.options?.maxSelect !== 1) {
                     val = [val];
                 }
-            } else if (field.type === "relation" || field.type === "user") {
+            } else if (field.type === "relation") {
                 val = 'RELATION_RECORD_ID';
-                if (field.options?.maxSelect > 1) {
+                if (field.options?.maxSelect !== 1) {
                     val = [val];
                 }
             } else {
@@ -808,6 +1078,71 @@ export default class CommonHelper {
         }
 
         return dummy;
+    }
+
+    /**
+     * Returns a dummy collection schema data object.
+     *
+     * @param  {Object} collection
+     * @return {Object}
+     */
+    static dummyCollectionSchemaData(collection) {
+        const fields = collection?.schema || [];
+
+        const dummy = {};
+
+        for (const field of fields) {
+            let val = null;
+
+            if (field.type === "number") {
+                val = 123;
+            } else if (field.type === "date") {
+                val = "2022-01-01 10:00:00.123Z";
+            } else if (field.type === "bool") {
+                val = true;
+            } else if (field.type === "email") {
+                val = "test@example.com";
+            } else if (field.type === "url") {
+                val = "https://example.com";
+            } else if (field.type === "json") {
+                val = 'JSON';
+            } else if (field.type === "file") {
+                continue; // currently file upload is supported only via FormData
+            } else if (field.type === "select") {
+                val = field.options?.values?.[0];
+                if (field.options?.maxSelect !== 1) {
+                    val = [val];
+                }
+            } else if (field.type === "relation") {
+                val = 'RELATION_RECORD_ID';
+                if (field.options?.maxSelect !== 1) {
+                    val = [val];
+                }
+            } else {
+                val = "test";
+            }
+
+            dummy[field.name] = val;
+        }
+
+        return dummy;
+    }
+
+    /**
+     * Returns a collection type icon.
+     *
+     * @param  {String} type
+     * @return {String}
+     */
+    static getCollectionTypeIcon(type) {
+        switch (type?.toLowerCase()) {
+            case "auth":
+                return "ri-group-line";
+            case "view":
+                return "ri-table-line";
+            default:
+                return "ri-folder-2-line";
+        }
     }
 
     /**
@@ -832,6 +1167,8 @@ export default class CommonHelper {
                 return "ri-mail-line";
             case "url":
                 return "ri-link";
+            case "editor":
+                return "ri-edit-2-line";
             case "select":
                 return "ri-list-check";
             case "json":
@@ -854,9 +1191,7 @@ export default class CommonHelper {
      * @return {String}
      */
     static getFieldValueType(field) {
-        field = field || {};
-
-        switch (field.type) {
+        switch (field?.type) {
             case 'bool':
                 return 'Boolean';
             case 'number':
@@ -865,14 +1200,40 @@ export default class CommonHelper {
                 return 'File';
             case 'select':
             case 'relation':
-            case 'user':
-                if (field.options?.maxSelect > 1) {
-                    return 'Array<String>';
+                if (field?.options?.maxSelect === 1) {
+                    return 'String';
                 }
-                return 'String';
+                return 'Array<String>';
             default:
                 return 'String';
         }
+    }
+
+    /**
+     * Returns the zero-default string value of the provided field.
+     *
+     * @param  {Object} field
+     * @return {String}
+     */
+    static zeroDefaultStr(field) {
+        if (field?.type === "number") {
+            return "0";
+        }
+
+        if (field?.type === "bool") {
+            return "false";
+        }
+
+        if (field?.type === "json") {
+            return 'null, "", [], {}';
+        }
+
+        // arrayable fields
+        if (["select", "relation", "file"].includes(field?.type) && field?.options?.maxSelect != 1) {
+            return "[]";
+        }
+
+        return '""';
     }
 
     /**
@@ -939,5 +1300,777 @@ export default class CommonHelper {
             changedFields.length ||
             (withDeleteMissing && removedFields.length)
         );
+    }
+
+    /**
+     * Groups and sorts collections array by type (auth, base, view) and name.
+     *
+     * @param  {Array} collections
+     * @return {Array}
+     */
+    static sortCollections(collections = []) {
+        const auth = [];
+        const base = [];
+        const view = [];
+
+        for (const collection of collections) {
+            if (collection.type === 'auth') {
+                auth.push(collection);
+            } else if (collection.type === 'base') {
+                base.push(collection);
+            } else {
+                view.push(collection);
+            }
+        }
+
+        function sortNames(a, b) {
+            if (a.name > b.name) {
+                return 1
+            }
+            if (a.name < b.name) {
+                return -1
+            }
+            return 0;
+        }
+
+        return [].concat(auth.sort(sortNames), base.sort(sortNames), view.sort(sortNames));
+    }
+
+
+    /**
+     * "Yield" to the main thread to break long runing task into smaller ones.
+     *
+     * (see https://web.dev/optimize-long-tasks/)
+     */
+    static yieldToMain() {
+        return new Promise((resolve) => {
+            setTimeout(resolve, 0);
+        });
+    }
+
+    /**
+     * Returns the default Flatpickr initialization options.
+     *
+     * @return {Object}
+     */
+    static defaultFlatpickrOptions() {
+        return {
+            dateFormat: "Y-m-d H:i:S",
+            disableMobile: true,
+            allowInput: true,
+            enableTime: true,
+            time_24hr: true,
+            locale: {
+                firstDayOfWeek: 1,
+            },
+        }
+    }
+
+    /**
+     * Returns the default rich editor options.
+     *
+     * @return {Object}
+     */
+    static defaultEditorOptions() {
+        const allowedPasteNodes = [
+            "DIV", "P", "A", "EM", "B", "STRONG",
+            "H1", "H2", "H3", "H4", "H5", "H6",
+            "TABLE", "TR", "TD", "TH", "TBODY", "THEAD", "TFOOT",
+            "BR", "HR", "Q", "SUP", "SUB", "DEL",
+            "IMG", "OL", "UL", "LI", "CODE",
+        ];
+
+        function unwrap(node) {
+            let parent = node.parentNode;
+
+            // move children outside of the parent node
+            while (node.firstChild) {
+                parent.insertBefore(node.firstChild, node);
+            }
+
+            // remove the now empty parent element
+            parent.removeChild(node);
+        }
+
+        function cleanupPastedNode(node) {
+            if (!node) {
+                return; // nothing to cleanup
+            }
+
+            for (const child of node.children) {
+                cleanupPastedNode(child);
+            }
+
+            if (!allowedPasteNodes.includes(node.tagName)) {
+                unwrap(node);
+            } else {
+                node.removeAttribute("style");
+                node.removeAttribute("class");
+            }
+        }
+
+        return {
+            branding: false,
+            promotion: false,
+            menubar: false,
+            min_height: 270,
+            height: 270,
+            max_height: 700,
+            autoresize_bottom_margin: 30,
+            skin: "pocketbase",
+            content_style: "body { font-size: 14px }",
+            plugins: [
+                "autoresize",
+                "autolink",
+                "lists",
+                "link",
+                "image",
+                "searchreplace",
+                "fullscreen",
+                "media",
+                "table",
+                "code",
+                "codesample",
+                "directionality",
+            ],
+            toolbar: "styles | alignleft aligncenter alignright | bold italic forecolor backcolor | bullist numlist | link image_picker table codesample direction | code fullscreen",
+            paste_postprocess: (editor, args) => {
+                cleanupPastedNode(args.node);
+            },
+            file_picker_types: "image",
+            // @see https://www.tiny.cloud/docs/tinymce/6/file-image-upload/#interactive-example
+            file_picker_callback: (cb, value, meta) => {
+                const input = document.createElement("input");
+                input.setAttribute("type", "file");
+                input.setAttribute("accept", "image/*");
+
+                input.addEventListener("change", (e) => {
+                    const file = e.target.files[0];
+                    const reader = new FileReader();
+
+                    reader.addEventListener("load", () => {
+                        if (!tinymce) {
+                            return;
+                        }
+
+                        // We need to register the blob in TinyMCEs image blob registry.
+                        // In future TinyMCE version this part will be handled internally.
+                        const id = "blobid" + new Date().getTime();
+                        const blobCache = tinymce.activeEditor.editorUpload.blobCache;
+                        const base64 = reader.result.split(",")[1];
+                        const blobInfo = blobCache.create(id, file, base64);
+                        blobCache.add(blobInfo);
+
+                        // call the callback and populate the Title field with the file name
+                        cb(blobInfo.blobUri(), { title: file.name });
+                    });
+
+                    reader.readAsDataURL(file);
+                });
+
+                input.click();
+            },
+            setup: (editor) => {
+                editor.on('keydown', (e) => {
+                    // propagate save shortcut to the parent
+                    if ((e.ctrlKey || e.metaKey) && e.code == "KeyS" && editor.formElement) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        editor.formElement.dispatchEvent(new KeyboardEvent("keydown", e));
+                    }
+                });
+
+                const lastDirectionKey = "tinymce_last_direction";
+
+                // load last used text direction for blank editors
+                editor.on('init', () => {
+                    const lastDirection = window?.localStorage?.getItem(lastDirectionKey);
+                    if (!editor.isDirty() && editor.getContent() == "" && lastDirection == "rtl") {
+                        editor.execCommand("mceDirectionRTL");
+                    }
+                });
+
+                // text direction dropdown
+                editor.ui.registry.addMenuButton("direction", {
+                    icon: "visualchars",
+                    fetch: (callback) => {
+                        const items = [
+                            {
+                                type: "menuitem",
+                                text: "LTR content",
+                                icon: "ltr",
+                                onAction: () => {
+                                    window?.localStorage?.setItem(lastDirectionKey, "ltr");
+                                    editor.execCommand("mceDirectionLTR");
+                                }
+                            },
+                            {
+                                type: "menuitem",
+                                text: "RTL content",
+                                icon: "rtl",
+                                onAction: () => {
+                                    window?.localStorage?.setItem(lastDirectionKey, "rtl");
+                                    editor.execCommand("mceDirectionRTL");
+                                }
+                            }
+                        ];
+
+                        callback(items);
+                    }
+                });
+
+                editor.ui.registry.addMenuButton("image_picker", {
+                    icon: "image",
+                    fetch: (callback) => {
+                        const items = [
+                            {
+                                type: "menuitem",
+                                text: "From collection",
+                                icon: "gallery",
+                                onAction: () => {
+                                    editor.dispatch("collections_file_picker", {})
+                                }
+                            },
+                            {
+                                type: "menuitem",
+                                text: "Inline",
+                                icon: "browse",
+                                onAction: () => {
+                                    editor.execCommand("mceImage");
+                                }
+                            }
+                        ];
+
+                        callback(items);
+                    }
+                })
+            },
+        };
+    }
+
+    /**
+     * Tries to output the first displayable field of the provided model.
+     *
+     * @param  {Object}        model
+     * @param  {Array<string>} displayFields
+     * @param  {String}        [missingValue]
+     * @return {String}
+     */
+    static displayValue(model, displayFields, missingValue = "N/A") {
+        model = model || {};
+        displayFields = displayFields || [];
+
+        let result = [];
+
+        for (const prop of displayFields) {
+            let val = model[prop];
+
+            if (typeof val === "undefined") {
+                continue
+            }
+
+            val = CommonHelper.stringifyValue(val, missingValue)
+
+            result.push(val);
+        }
+
+        if (result.length > 0) {
+            return result.join(", ");
+        }
+
+        const fallbackProps = [
+            "title",
+            "name",
+            "slug",
+            "email",
+            "username",
+            "nickname",
+            "label",
+            "heading",
+            "message",
+            "key",
+            "identifier",
+            "id",
+        ];
+
+        for (const prop of fallbackProps) {
+            let val = CommonHelper.stringifyValue(model[prop], "");
+            if (val) {
+                return val;
+            }
+        }
+
+        return missingValue;
+    }
+
+    /**
+     * Stringifies the provided value or fallback to missingValue in case it is empty.
+     *
+     * @param  {Mixed}  val
+     * @param  {String} missingValue
+     * @return {String}
+     */
+    static stringifyValue(val, missingValue = "N/A", truncateLength = 150) {
+        if (CommonHelper.isEmpty(val)) {
+            return missingValue;
+        }
+
+        if (typeof val == "number")  {
+            return "" + val;
+        }
+
+        if (typeof val == "boolean")  {
+            return val ? "True" : "False";
+        }
+
+        if (typeof val == "string") {
+            val = val.indexOf("<") >= 0 ? CommonHelper.plainText(val) : val;
+            return CommonHelper.truncate(val, truncateLength) || missingValue;
+        }
+
+        // plain array
+        if (Array.isArray(val) && typeof val[0] != "object") {
+            return CommonHelper.truncate(val.join(","), truncateLength);
+        }
+
+        // json
+        if (typeof val == "object") {
+            try {
+                return CommonHelper.truncate(JSON.stringify(val), truncateLength) || missingValue;
+            } catch (_) {
+                return missingValue;
+            }
+        }
+
+        // return as it is
+        return val;
+    }
+
+    /**
+     * Rudimentary SELECT query columns extractor.
+     * Returns an array with the identifier aliases
+     * (expressions wrapped in parenthesis are skipped).
+     *
+     * @param  {String} selectQuery
+     * @return {Array}
+     */
+    static extractColumnsFromQuery(selectQuery) {
+        const groupReplacement = "__GROUP__";
+
+        selectQuery = (selectQuery || "").
+            // replace parenthesis/group expessions
+            replace(/\([\s\S]+?\)/gm, groupReplacement).
+            // replace multi-whitespace characters with single space
+            replace(/[\t\r\n]|(?:\s\s)+/g, " ");
+
+        const match = selectQuery.match(/select\s+([\s\S]+)\s+from/);
+
+        const expressions = match?.[1]?.split(",") || [];
+
+        const result = [];
+
+        for (let expr of expressions) {
+            const column = expr.trim().split(" ").pop(); // get only the alias
+            if (column != "" && column != groupReplacement) {
+                result.push(column.replace(/[\'\"\`\[\]\s]/g, ""));
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Returns an array with all public collection identifiers (schema + type specific fields).
+     *
+     * @param  {[type]} collection The collection to extract identifiers from.
+     * @param  {String} prefix     Optional prefix for each found identified.
+     * @return {Array}
+     */
+    static getAllCollectionIdentifiers(collection, prefix = "") {
+        if (!collection) {
+            return [];
+        }
+
+        let result = [prefix + "id"];
+
+        if (collection.type === "view") {
+            for (let col of CommonHelper.extractColumnsFromQuery(collection.options.query)) {
+                CommonHelper.pushUnique(result, prefix + col);
+            }
+        } else if (collection.type === "auth") {
+            result.push(prefix + "username");
+            result.push(prefix + "email");
+            result.push(prefix + "emailVisibility");
+            result.push(prefix + "verified");
+            result.push(prefix + "created");
+            result.push(prefix + "updated");
+        } else {
+            result.push(prefix + "created");
+            result.push(prefix + "updated");
+        }
+
+        const schema = collection.schema || [];
+
+        for (const field of schema) {
+            CommonHelper.pushUnique(result, prefix + field.name);
+        }
+
+        return result;
+    }
+
+    /**
+     * Parses the specified SQL index and returns an object with its components.
+     *
+     * For example:
+     *
+     * ```js
+     * parseIndex("CREATE UNIQUE INDEX IF NOT EXISTS schemaname.idxname on tablename (col1, col2) where expr")
+     * // output:
+     * {
+     *   "unique":     true,
+     *   "optional":   true,
+     *   "schemaName": "schemaname"
+     *   "indexName":  "idxname"
+     *   "tableName":  "tablename"
+     *   "columns":    [{name: "col1", "collate": "", "sort": ""}, {name: "col1", "collate": "", "sort": ""}]
+     *   "where":      "expr"
+     * }
+     * ```
+     *
+     * @param  {String} idx
+     * @return {Object}
+     */
+    static parseIndex(idx) {
+        const result = {
+            unique:     false,
+            optional:   false,
+            schemaName: "",
+            indexName:  "",
+            tableName:  "",
+            columns:    [],
+            where:      "",
+        };
+
+        const indexRegex = /create\s+(unique\s+)?\s*index\s*(if\s+not\s+exists\s+)?(\S*)\s+on\s+(\S*)\s*\(([\s\S]*)\)(?:\s*where\s+([\s\S]*))?/gmi;
+        const matches    = indexRegex.exec((idx || "").trim())
+
+        if (matches?.length != 7) {
+            return result;
+        }
+
+        const sqlQuoteRegex = /^[\"\'\`\[\{}]|[\"\'\`\]\}]$/gm
+
+        // unique
+        result.unique = matches[1]?.trim().toLowerCase() === "unique";
+
+        // optional
+        result.optional = !CommonHelper.isEmpty(matches[2]?.trim());
+
+        // schemaName and indexName
+        const namePair = (matches[3] || "").split(".");
+        if (namePair.length == 2) {
+            result.schemaName = namePair[0].replace(sqlQuoteRegex, "");
+            result.indexName = namePair[1].replace(sqlQuoteRegex, "");
+        } else {
+            result.schemaName = "";
+            result.indexName = namePair[0].replace(sqlQuoteRegex, "");
+        }
+
+        // tableName
+        result.tableName = (matches[4] || "").replace(sqlQuoteRegex, "");
+
+        // columns
+        const rawColumns = (matches[5] || "")
+            .replace(/,(?=[^\(]*\))/gmi, "{PB_TEMP}") // temporary replace comma within expressions for easier splitting
+            .split(",");                              // split columns
+
+        for (let col of rawColumns) {
+            col = col.trim().replaceAll("{PB_TEMP}", ",") // revert temp replacement
+
+            const colRegex = /^([\s\S]+?)(?:\s+collate\s+([\w]+))?(?:\s+(asc|desc))?$/gmi
+            const colMatches = colRegex.exec(col);
+            if (colMatches?.length != 4) {
+                continue
+            }
+
+            const colOrExpr = colMatches[1]?.trim()?.replace(sqlQuoteRegex, "");
+            if (!colOrExpr) {
+                continue;
+            }
+            result.columns.push({
+                name:    colOrExpr,
+                collate: colMatches[2] || "",
+                sort:    colMatches[3]?.toUpperCase() || "",
+            });
+        }
+
+        // WHERE expression
+        result.where = matches[6] || "";
+
+        return result;
+    }
+
+    /**
+     * Builds an index expression from parsed index parts (see parseIndex()).
+     *
+     * @param  {Array} indexParts
+     * @return {String}
+     */
+    static buildIndex(indexParts) {
+        let result = "CREATE ";
+
+        if (indexParts.unique) {
+            result += "UNIQUE ";
+        }
+
+        result += "INDEX ";
+
+        if (indexParts.optional) {
+            result += "IF NOT EXISTS ";
+        }
+
+        if (indexParts.schemaName) {
+            result += `\`${indexParts.schemaName}\`.`;
+        }
+
+        result += `\`${indexParts.indexName || "idx_" + CommonHelper.randomString(7)}\` `;
+
+        result += `ON \`${indexParts.tableName}\` (`;
+
+        const nonEmptyCols = indexParts.columns.filter((col) => !!col?.name);
+
+        if (nonEmptyCols.length > 1) {
+            result += "\n  ";
+        }
+
+        result += nonEmptyCols.map((col) => {
+                let item = "";
+
+                if (col.name.includes("(") || col.name.includes(" ")) {
+                    // most likely an expression
+                    item += col.name;
+                } else {
+                    // regular identifier
+                    item += ("`" + col.name + "`");
+                }
+
+                if (col.collate) {
+                    item += (" COLLATE " + col.collate);
+                }
+
+                if (col.sort) {
+                    item += (" " + col.sort.toUpperCase());
+                }
+
+                return item;
+            })
+            .join(",\n  ");
+
+        if (nonEmptyCols.length > 1) {
+            result += "\n";
+        }
+
+        result += `)`;
+
+        if (indexParts.where) {
+            result += ` WHERE ${indexParts.where}`;
+        }
+
+        return result;
+    }
+
+    /**
+     * Replaces the idx table name with newTableName.
+     *
+     * @param  {String} idx
+     * @param  {String} newTableName
+     * @return {String}
+     */
+    static replaceIndexTableName(idx, newTableName) {
+        const parsed = CommonHelper.parseIndex(idx);
+
+        parsed.tableName = newTableName;
+
+        return CommonHelper.buildIndex(parsed);
+    }
+
+    /**
+     * Replaces an idx column name with a new one (if exists).
+     *
+     * @param  {String} idx
+     * @param  {String} oldColumn
+     * @param  {String} newColumn
+     * @return {String}
+     */
+    static replaceIndexColumn(idx, oldColumn, newColumn) {
+        if (oldColumn === newColumn) {
+            return idx; // no change
+        }
+
+        const parsed = CommonHelper.parseIndex(idx);
+
+        let hasChange = false;
+        for (let col of parsed.columns) {
+            if (col.name === oldColumn) {
+                col.name = newColumn;
+                hasChange = true;
+            }
+        }
+
+        return hasChange ? CommonHelper.buildIndex(parsed) : idx;
+    }
+
+    /**
+     * Normalizes the search filter by converting a simple search term into
+     * a wildcard filter expression using the provided fallback search fields.
+     *
+     * If searchTerm is already an expression it is returned without changes.
+     *
+     * @param  {String} searchTerm
+     * @param  {Array}  fallbackFields
+     * @return {String}
+     */
+    static normalizeSearchFilter(searchTerm, fallbackFields) {
+        searchTerm = (searchTerm || "").trim();
+        if (!searchTerm || !fallbackFields.length) {
+            return searchTerm;
+        }
+
+        const opChars = ["=", "!=", "~", "!~", ">", ">=", "<", "<="];
+
+        // loosely check if it is already a filter expression
+        for (const op of opChars) {
+            if (searchTerm.includes(op)) {
+                return searchTerm;
+            }
+        }
+
+        searchTerm = isNaN(searchTerm) && searchTerm != "true" && searchTerm != "false"
+            ? `"${searchTerm.replace(/^[\"\'\`]|[\"\'\`]$/gm, "")}"`
+            : searchTerm;
+
+        return fallbackFields.map((f) => `${f}~${searchTerm}`).join("||");
+    }
+
+    /**
+     * The same as normalizeSearchFilter() but with preset common logs fields.
+     *
+     * @param  {String} searchTerm
+     * @param  {Array}  fallbackFields
+     * @return {String}
+     */
+    static normalizeLogsFilter(searchTerm, extraFallbackFields = []) {
+        return CommonHelper.normalizeSearchFilter(searchTerm, ["level", "message", "data"].concat(extraFallbackFields));
+    }
+
+    /**
+     * Iniitialize a new blank Collection POJO and merge it with the provided data (if any).
+     *
+     * @param  {Object} [data]
+     * @return {Object}
+     */
+    static initCollection(data) {
+        return Object.assign({
+            id:         '',
+            created:    '',
+            updated:    '',
+            name:       '',
+            type:       'base',
+            system:     false,
+            listRule:   null,
+            viewRule:   null,
+            createRule: null,
+            updateRule: null,
+            deleteRule: null,
+            schema:     [],
+            indexes:    [],
+            options:    {},
+        }, data);
+    }
+
+    /**
+     * Iniitialize a new blank SchemaField POJO and merge it with the provided data (if any).
+     *
+     * @param  {Object} [data]
+     * @return {Object}
+     */
+    static initSchemaField(data) {
+        return Object.assign({
+            id:       '',
+            name:     '',
+            type:     'text',
+            system:   false,
+            required: false,
+            options:  {},
+        }, data);
+    }
+
+    /**
+     * Triggers a window resize event.
+     */
+    static triggerResize() {
+        window.dispatchEvent(new Event("resize"))
+    }
+
+    /**
+     * Extracts the hash query parameters from the current url and
+     * returns them as plain object.
+     *
+     * @return {Object}
+     */
+    static getHashQueryParams() {
+        let query = "";
+
+        const queryStart = window.location.hash.indexOf("?");
+        if (queryStart > -1) {
+            query = window.location.hash.substring(queryStart + 1);
+        }
+
+        return Object.fromEntries(new URLSearchParams(query))
+    }
+
+    /**
+     * Replaces the current hash query parameters with the provided `params`
+     * without adding new state to the browser history.
+     *
+     * @param {Object} params
+     */
+    static replaceHashQueryParams(params) {
+        params = params || {};
+
+        let query = "";
+
+        let hash = window.location.hash
+
+        const queryStart = hash.indexOf("?");
+        if (queryStart > -1) {
+            query = hash.substring(queryStart + 1);
+            hash = hash.substring(0, queryStart);
+        }
+
+        const parsed = new URLSearchParams(query)
+
+        for (let key in params) {
+            const val = params[key];
+
+            if (val === null) {
+                parsed.delete(key);
+            } else {
+                parsed.set(key, val);
+            }
+        }
+
+        query = parsed.toString();
+        if (query != "") {
+            hash += ("?" + query);
+        }
+
+        // replace the hash/fragment part with the updated one
+        let href = window.location.href;
+        const hashIndex = href.indexOf("#");
+        if (hashIndex > -1) {
+            href = href.substring(0, hashIndex);
+        }
+        window.location.replace(href + hash);
     }
 }

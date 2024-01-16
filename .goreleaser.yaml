@@ -7,7 +7,21 @@ before:
     - go mod tidy
 
 builds:
-  - main: ./examples/base
+  # used only for tests
+  - id: build_cgo
+    main: ./examples/base
+    binary: pocketbase
+    ldflags:
+      - -s -w -X github.com/pocketbase/pocketbase.Version={{ .Version }}
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+
+  - id: build_noncgo
+    main: ./examples/base
     binary: pocketbase
     ldflags:
       - -s -w -X github.com/pocketbase/pocketbase.Version={{ .Version }}
@@ -33,10 +47,12 @@ release:
   draft: true
 
 archives:
-  - format: zip
+  - id: archive_noncgo
+    builds: [build_noncgo]
+    format: zip
     files:
-      - LICENSE*
-      - CHANGELOG*
+      - LICENSE.md
+      - CHANGELOG.md
 
 checksum:
   name_template: 'checksums.txt'

@@ -39,7 +39,7 @@
     code {
         display: block;
         width: 100%;
-        padding: var(--xsSpacing);
+        padding: 10px 15px;
         white-space: pre-wrap;
         word-break: break-word;
     }

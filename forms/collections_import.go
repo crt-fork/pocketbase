@@ -3,7 +3,6 @@ package forms
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/pocketbase/pocketbase/core"
@@ -11,48 +10,31 @@ import (
 	"github.com/pocketbase/pocketbase/models"
 )
 
-// CollectionsImport specifies a form model to bulk import
+// CollectionsImport is a form model to bulk import
 // (create, replace and delete) collections from a user provided list.
 type CollectionsImport struct {
-	config CollectionsImportConfig
+	app core.App
+	dao *daos.Dao
 
 	Collections   []*models.Collection `form:"collections" json:"collections"`
 	DeleteMissing bool                 `form:"deleteMissing" json:"deleteMissing"`
 }
 
-// CollectionsImportConfig is the [CollectionsImport] factory initializer config.
-//
-// NB! App is a required struct member.
-type CollectionsImportConfig struct {
-	App   core.App
-	TxDao *daos.Dao
-}
-
 // NewCollectionsImport creates a new [CollectionsImport] form with
-// initializer config created from the provided [core.App] instance.
+// initialized with from the provided [core.App] instance.
 //
-// If you want to submit the form as part of another transaction, use
-// [NewCollectionsImportWithConfig] with explicitly set TxDao.
+// If you want to submit the form as part of a transaction,
+// you can change the default Dao via [SetDao()].
 func NewCollectionsImport(app core.App) *CollectionsImport {
-	return NewCollectionsImportWithConfig(CollectionsImportConfig{
-		App: app,
-	})
+	return &CollectionsImport{
+		app: app,
+		dao: app.Dao(),
+	}
 }
 
-// NewCollectionsImportWithConfig creates a new [CollectionsImport]
-// form with the provided config or panics on invalid configuration.
-func NewCollectionsImportWithConfig(config CollectionsImportConfig) *CollectionsImport {
-	form := &CollectionsImport{config: config}
-
-	if form.config.App == nil {
-		panic("Missing required config.App instance.")
-	}
-
-	if form.config.TxDao == nil {
-		form.config.TxDao = form.config.App.Dao()
-	}
-
-	return form
+// SetDao replaces the default form Dao instance with the provided one.
+func (form *CollectionsImport) SetDao(dao *daos.Dao) {
+	form.dao = dao
 }
 
 // Validate makes the form validatable by implementing [validation.Validatable] interface.
@@ -73,17 +55,17 @@ func (form *CollectionsImport) Validate() error {
 //
 // You can optionally provide a list of InterceptorFunc to further
 // modify the form behavior before persisting it.
-func (form *CollectionsImport) Submit(interceptors ...InterceptorFunc) error {
+func (form *CollectionsImport) Submit(interceptors ...InterceptorFunc[[]*models.Collection]) error {
 	if err := form.Validate(); err != nil {
 		return err
 	}
 
-	return runInterceptors(func() error {
-		return form.config.TxDao.RunInTransaction(func(txDao *daos.Dao) error {
+	return runInterceptors(form.Collections, func(collections []*models.Collection) error {
+		return form.dao.RunInTransaction(func(txDao *daos.Dao) error {
 			importErr := txDao.ImportCollections(
-				form.Collections,
+				collections,
 				form.DeleteMissing,
-				form.beforeRecordsSync,
+				form.afterSync,
 			)
 			if importErr == nil {
 				return nil
@@ -95,21 +77,18 @@ func (form *CollectionsImport) Submit(interceptors ...InterceptorFunc) error {
 			}
 
 			// generic/db failure
-			if form.config.App.IsDebug() {
-				log.Println("Internal import failure:", importErr)
-			}
 			return validation.Errors{"collections": validation.NewError(
 				"collections_import_failure",
-				"Failed to import the collections configuration.",
+				"Failed to import the collections configuration. Raw error:\n"+importErr.Error(),
 			)}
 		})
 	}, interceptors...)
 }
 
-func (form *CollectionsImport) beforeRecordsSync(txDao *daos.Dao, mappedNew, mappedOld map[string]*models.Collection) error {
+func (form *CollectionsImport) afterSync(txDao *daos.Dao, mappedNew, mappedOld map[string]*models.Collection) error {
 	// refresh the actual persisted collections list
 	refreshedCollections := []*models.Collection{}
-	if err := txDao.CollectionQuery().OrderBy("created ASC").All(&refreshedCollections); err != nil {
+	if err := txDao.CollectionQuery().OrderBy("updated ASC").All(&refreshedCollections); err != nil {
 		return err
 	}
 
@@ -120,14 +99,14 @@ func (form *CollectionsImport) beforeRecordsSync(txDao *daos.Dao, mappedNew, map
 		if upsertModel == nil {
 			upsertModel = collection
 		}
+		upsertModel.MarkAsNotNew()
 
-		upsertForm := NewCollectionUpsertWithConfig(CollectionUpsertConfig{
-			App:   form.config.App,
-			TxDao: txDao,
-		}, upsertModel)
+		upsertForm := NewCollectionUpsert(form.app, upsertModel)
+		upsertForm.SetDao(txDao)
 
 		// load form fields with the refreshed collection state
 		upsertForm.Id = collection.Id
+		upsertForm.Type = collection.Type
 		upsertForm.Name = collection.Name
 		upsertForm.System = collection.System
 		upsertForm.ListRule = collection.ListRule
@@ -136,6 +115,7 @@ func (form *CollectionsImport) beforeRecordsSync(txDao *daos.Dao, mappedNew, map
 		upsertForm.UpdateRule = collection.UpdateRule
 		upsertForm.DeleteRule = collection.DeleteRule
 		upsertForm.Schema = collection.Schema
+		upsertForm.Options = collection.Options
 
 		if err := upsertForm.Validate(); err != nil {
 			// serialize the validation error(s)

@@ -4,59 +4,42 @@ import (
 	"os"
 	"time"
 
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/daos"
 	"github.com/pocketbase/pocketbase/models"
+	"github.com/pocketbase/pocketbase/models/settings"
+	"github.com/pocketbase/pocketbase/tools/types"
 )
 
-// SettingsUpsert specifies a [core.Settings] upsert (create/update) form.
+// SettingsUpsert is a [settings.Settings] upsert (create/update) form.
 type SettingsUpsert struct {
-	*core.Settings
+	*settings.Settings
 
-	config SettingsUpsertConfig
-}
-
-// SettingsUpsertConfig is the [SettingsUpsert] factory initializer config.
-//
-// NB! App is required struct member.
-type SettingsUpsertConfig struct {
-	App       core.App
-	TxDao     *daos.Dao
-	TxLogsDao *daos.Dao
+	app core.App
+	dao *daos.Dao
 }
 
 // NewSettingsUpsert creates a new [SettingsUpsert] form with initializer
 // config created from the provided [core.App] instance.
 //
-// If you want to submit the form as part of another transaction, use
-// [NewSettingsUpsertWithConfig] with explicitly set TxDao.
+// If you want to submit the form as part of a transaction,
+// you can change the default Dao via [SetDao()].
 func NewSettingsUpsert(app core.App) *SettingsUpsert {
-	return NewSettingsUpsertWithConfig(SettingsUpsertConfig{
-		App: app,
-	})
-}
-
-// NewSettingsUpsertWithConfig creates a new [SettingsUpsert] form
-// with the provided config or panics on invalid configuration.
-func NewSettingsUpsertWithConfig(config SettingsUpsertConfig) *SettingsUpsert {
-	form := &SettingsUpsert{config: config}
-
-	if form.config.App == nil {
-		panic("Missing required config.App instance.")
-	}
-
-	if form.config.TxDao == nil {
-		form.config.TxDao = form.config.App.Dao()
-	}
-
-	if form.config.TxLogsDao == nil {
-		form.config.TxLogsDao = form.config.App.LogsDao()
+	form := &SettingsUpsert{
+		app: app,
+		dao: app.Dao(),
 	}
 
 	// load the application settings into the form
-	form.Settings, _ = config.App.Settings().Clone()
+	form.Settings, _ = app.Settings().Clone()
 
 	return form
+}
+
+// SetDao replaces the default form Dao instance with the provided one.
+func (form *SettingsUpsert) SetDao(dao *daos.Dao) {
+	form.dao = dao
 }
 
 // Validate makes the form validatable by implementing [validation.Validatable] interface.
@@ -70,29 +53,38 @@ func (form *SettingsUpsert) Validate() error {
 //
 // You can optionally provide a list of InterceptorFunc to further
 // modify the form behavior before persisting it.
-func (form *SettingsUpsert) Submit(interceptors ...InterceptorFunc) error {
+func (form *SettingsUpsert) Submit(interceptors ...InterceptorFunc[*settings.Settings]) error {
 	if err := form.Validate(); err != nil {
 		return err
 	}
 
-	encryptionKey := os.Getenv(form.config.App.EncryptionEnv())
+	return runInterceptors(form.Settings, func(s *settings.Settings) error {
+		form.Settings = s
 
-	return runInterceptors(func() error {
-		saveErr := form.config.TxDao.SaveParam(
-			models.ParamAppSettings,
-			form.Settings,
-			encryptionKey,
-		)
-		if saveErr != nil {
-			return saveErr
+		// persists settings change
+		encryptionKey := os.Getenv(form.app.EncryptionEnv())
+		if err := form.dao.SaveSettings(form.Settings, encryptionKey); err != nil {
+			return err
 		}
 
-		// explicitly trigger old logs deletion
-		form.config.TxLogsDao.DeleteOldRequests(
-			time.Now().AddDate(0, 0, -1*form.Settings.Logs.MaxDays),
-		)
+		// reload app settings
+		if err := form.app.RefreshSettings(); err != nil {
+			return err
+		}
 
-		// merge the application settings with the form ones
-		return form.config.App.Settings().Merge(form.Settings)
+		// try to clear old logs not matching the new settings
+		createdBefore := time.Now().AddDate(0, 0, -1*form.Settings.Logs.MaxDays).UTC().Format(types.DefaultDateLayout)
+		expr := dbx.NewExp("[[created]] <= {:date} OR [[level]] < {:level}", dbx.Params{
+			"date":  createdBefore,
+			"level": form.Settings.Logs.MinLevel,
+		})
+		form.app.LogsDao().NonconcurrentDB().Delete((&models.Log{}).TableName(), expr).Execute()
+
+		// no logs are allowed -> try to reclaim preserved disk space after the previous delete operation
+		if form.Settings.Logs.MaxDays == 0 {
+			form.app.LogsDao().Vacuum()
+		}
+
+		return nil
 	}, interceptors...)
 }

@@ -16,7 +16,7 @@
         updateTimeoutId = setTimeout(() => {
             if (inputElem) {
                 inputElem.style.height = ""; // reset
-                inputElem.style.height = Math.min(inputElem.scrollHeight + 2, maxHeight) + "px";
+                inputElem.style.height = Math.min(inputElem.scrollHeight, maxHeight) + "px";
             }
         }, 0);
     }
@@ -26,7 +26,7 @@
     //
     // note: New line could be added using "Enter+Shift".
     function handleKeydown(e) {
-        if (e?.code === "Enter" && !e?.shiftKey) {
+        if (e?.code === "Enter" && !e?.shiftKey && !e?.isComposing) {
             e.preventDefault();
 
             // trigger parent form submission (if any)

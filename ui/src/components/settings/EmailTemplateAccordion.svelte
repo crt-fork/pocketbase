@@ -1,17 +1,23 @@
+<script context="module">
+    let cachedEditorComponent;
+</script>
+
 <script>
     import { scale } from "svelte/transition";
     import tooltip from "@/actions/tooltip";
     import { errors, removeError } from "@/stores/errors";
     import { addInfoToast } from "@/stores/toasts";
     import CommonHelper from "@/utils/CommonHelper";
-    import Accordion from "@/components/base/Accordion.svelte";
     import Field from "@/components/base/Field.svelte";
+    import Accordion from "@/components/base/Accordion.svelte";
 
     export let key;
     export let title;
     export let config = {};
 
     let accordion;
+    let editorComponent = cachedEditorComponent;
+    let isEditorComponentLoading = false;
 
     $: hasErrors = !CommonHelper.isEmpty(CommonHelper.getNestedVal($errors, key));
 
@@ -31,10 +37,26 @@
         accordion?.collapseSiblings();
     }
 
+    async function loadEditorComponent() {
+        if (editorComponent || isEditorComponentLoading) {
+            return; // already loaded or in the process
+        }
+
+        isEditorComponentLoading = true;
+
+        editorComponent = (await import("@/components/base/CodeEditor.svelte")).default;
+
+        cachedEditorComponent = editorComponent;
+
+        isEditorComponentLoading = false;
+    }
+
     function copy(param) {
         CommonHelper.copyToClipboard(param);
         addInfoToast(`Copied ${param} to clipboard`, 2000);
     }
+
+    loadEditorComponent();
 </script>
 
 <Accordion bind:this={accordion} on:expand on:collapse on:toggle {...$$restProps}>
@@ -60,12 +82,20 @@
         <input type="text" id={uniqueId} bind:value={config.subject} spellcheck="false" required />
         <div class="help-block">
             Available placeholder parameters:
-            <span class="label label-sm link-primary txt-mono" on:click={() => copy("{APP_NAME}")}>
+            <button
+                type="button"
+                class="label label-sm link-primary txt-mono"
+                on:click={() => copy("{APP_NAME}")}
+            >
                 {"{APP_NAME}"}
-            </span>,
-            <span class="label label-sm link-primary txt-mono" on:click={() => copy("{APP_URL}")}>
+            </button>,
+            <button
+                type="button"
+                class="label label-sm link-primary txt-mono"
+                on:click={() => copy("{APP_URL}")}
+            >
                 {"{APP_URL}"}
-            </span>.
+            </button>.
         </div>
     </Field>
 
@@ -74,48 +104,78 @@
         <input type="text" id={uniqueId} bind:value={config.actionUrl} spellcheck="false" required />
         <div class="help-block">
             Available placeholder parameters:
-            <span class="label label-sm link-primary txt-mono" on:click={() => copy("{APP_NAME}")}>
+            <button
+                type="button"
+                class="label label-sm link-primary txt-mono"
+                on:click={() => copy("{APP_NAME}")}
+            >
                 {"{APP_NAME}"}
-            </span>,
-            <span class="label label-sm link-primary txt-mono" on:click={() => copy("{APP_URL}")}>
+            </button>,
+            <button
+                type="button"
+                class="label label-sm link-primary txt-mono"
+                on:click={() => copy("{APP_URL}")}
+            >
                 {"{APP_URL}"}
-            </span>,
-            <span
+            </button>,
+            <button
+                type="button"
                 class="label label-sm link-primary txt-mono"
                 title="Required parameter"
-                on:click={() => copy("{TOKEN}")}>{"{TOKEN}"}</span
-            >.
+                on:click={() => copy("{TOKEN}")}
+            >
+                {"{TOKEN}"}
+            </button>.
         </div>
     </Field>
 
     <Field class="form-field m-0 required" name="{key}.body" let:uniqueId>
         <label for={uniqueId}>Body (HTML)</label>
-        <textarea
-            id={uniqueId}
-            bind:value={config.body}
-            class="txt-mono"
-            spellcheck="false"
-            rows="12"
-            required
-        />
+
+        {#if editorComponent && !isEditorComponentLoading}
+            <svelte:component this={editorComponent} id={uniqueId} language="html" bind:value={config.body} />
+        {:else}
+            <textarea
+                id={uniqueId}
+                class="txt-mono"
+                spellcheck="false"
+                rows="14"
+                required
+                bind:value={config.body}
+            />
+        {/if}
+
         <div class="help-block">
             Available placeholder parameters:
-            <span class="label label-sm link-primary txt-mono" on:click={() => copy("{APP_NAME}")}>
+            <button
+                type="button"
+                class="label label-sm link-primary txt-mono"
+                on:click={() => copy("{APP_NAME}")}
+            >
                 {"{APP_NAME}"}
-            </span>,
-            <span class="label label-sm link-primary txt-mono" on:click={() => copy("{APP_URL}")}>
+            </button>,
+            <button
+                type="button"
+                class="label label-sm link-primary txt-mono"
+                on:click={() => copy("{APP_URL}")}
+            >
                 {"{APP_URL}"}
-            </span>,
-            <span class="label label-sm link-primary txt-mono" on:click={() => copy("{TOKEN}")}>
+            </button>,
+            <button
+                type="button"
+                class="label label-sm link-primary txt-mono"
+                on:click={() => copy("{TOKEN}")}
+            >
                 {"{TOKEN}"}
-            </span>,
-            <span
+            </button>,
+            <button
+                type="button"
                 class="label label-sm link-primary txt-mono"
                 title="Required parameter"
                 on:click={() => copy("{ACTION_URL}")}
             >
                 {"{ACTION_URL}"}
-            </span>.
+            </button>.
         </div>
     </Field>
 </Accordion>

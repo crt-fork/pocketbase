@@ -10,17 +10,9 @@ import (
 	"github.com/pocketbase/pocketbase/tests"
 )
 
-func TestCollectionsImportPanic(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("The form did not panic")
-		}
-	}()
-
-	forms.NewCollectionsImport(nil)
-}
-
 func TestCollectionsImportValidate(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -48,6 +40,10 @@ func TestCollectionsImportValidate(t *testing.T) {
 }
 
 func TestCollectionsImportSubmit(t *testing.T) {
+	t.Parallel()
+
+	totalCollections := 11
+
 	scenarios := []struct {
 		name                   string
 		jsonData               string
@@ -62,7 +58,7 @@ func TestCollectionsImportSubmit(t *testing.T) {
 				"collections": []
 			}`,
 			expectError:            true,
-			expectCollectionsCount: 5,
+			expectCollectionsCount: totalCollections,
 			expectEvents:           nil,
 		},
 		{
@@ -92,7 +88,26 @@ func TestCollectionsImportSubmit(t *testing.T) {
 				]
 			}`,
 			expectError:            true,
-			expectCollectionsCount: 5,
+			expectCollectionsCount: totalCollections,
+			expectEvents: map[string]int{
+				"OnModelBeforeCreate": 2,
+			},
+		},
+		{
+			name: "test empty base collection schema",
+			jsonData: `{
+				"collections": [
+					{
+						"name": "import1"
+					},
+					{
+						"name": "import2",
+						"type": "auth"
+					}
+				]
+			}`,
+			expectError:            true,
+			expectCollectionsCount: totalCollections,
 			expectEvents: map[string]int{
 				"OnModelBeforeCreate": 2,
 			},
@@ -120,14 +135,18 @@ func TestCollectionsImportSubmit(t *testing.T) {
 								"type":"bool"
 							}
 						]
+					},
+					{
+						"name": "import3",
+						"type": "auth"
 					}
 				]
 			}`,
 			expectError:            false,
-			expectCollectionsCount: 7,
+			expectCollectionsCount: totalCollections + 3,
 			expectEvents: map[string]int{
-				"OnModelBeforeCreate": 2,
-				"OnModelAfterCreate":  2,
+				"OnModelBeforeCreate": 3,
+				"OnModelAfterCreate":  3,
 			},
 		},
 		{
@@ -147,7 +166,7 @@ func TestCollectionsImportSubmit(t *testing.T) {
 				]
 			}`,
 			expectError:            true,
-			expectCollectionsCount: 5,
+			expectCollectionsCount: totalCollections,
 			expectEvents: map[string]int{
 				"OnModelBeforeCreate": 1,
 			},
@@ -158,8 +177,8 @@ func TestCollectionsImportSubmit(t *testing.T) {
 				"deleteMissing": true,
 				"collections": [
 					{
-						"id":"3f2888f8-075d-49fe-9d09-ea7e951000dc",
-						"name":"demo",
+						"id":"sz5l5z67tg7gku0",
+						"name":"demo2",
 						"schema":[
 							{
 								"id":"_2hlxbmp",
@@ -189,19 +208,22 @@ func TestCollectionsImportSubmit(t *testing.T) {
 				]
 			}`,
 			expectError:            true,
-			expectCollectionsCount: 5,
+			expectCollectionsCount: totalCollections,
+			expectEvents: map[string]int{
+				"OnModelBeforeDelete": 1,
+			},
 		},
 		{
 			name: "modified + new collection",
 			jsonData: `{
 				"collections": [
 					{
-						"id":"3f2888f8-075d-49fe-9d09-ea7e951000dc",
-						"name":"demo",
+						"id":"sz5l5z67tg7gku0",
+						"name":"demo2_rename",
 						"schema":[
 							{
 								"id":"_2hlxbmp",
-								"name":"title",
+								"name":"title_new",
 								"type":"text",
 								"system":false,
 								"required":true,
@@ -237,7 +259,7 @@ func TestCollectionsImportSubmit(t *testing.T) {
 				]
 			}`,
 			expectError:            false,
-			expectCollectionsCount: 7,
+			expectCollectionsCount: totalCollections + 2,
 			expectEvents: map[string]int{
 				"OnModelBeforeUpdate": 1,
 				"OnModelAfterUpdate":  1,
@@ -251,45 +273,44 @@ func TestCollectionsImportSubmit(t *testing.T) {
 				"deleteMissing": true,
 				"collections": [
 					{
-						"id":"abe78266-fd4d-4aea-962d-8c0138ac522b",
-						"name":"profiles",
-						"system":true,
-						"listRule":"userId = @request.user.id",
-						"viewRule":"created > 'test_change'",
-						"createRule":"userId = @request.user.id",
-						"updateRule":"userId = @request.user.id",
-						"deleteRule":"userId = @request.user.id",
-						"schema":[
+						"id": "kpv709sk2lqbqk8",
+						"system": true,
+						"name": "nologin",
+						"type": "auth",
+						"options": {
+							"allowEmailAuth": false,
+							"allowOAuth2Auth": false,
+							"allowUsernameAuth": false,
+							"exceptEmailDomains": [],
+							"manageRule": "@request.auth.collectionName = 'users'",
+							"minPasswordLength": 8,
+							"onlyEmailDomains": [],
+							"requireEmail": true
+						},
+						"listRule": "",
+						"viewRule": "",
+						"createRule": "",
+						"updateRule": "",
+						"deleteRule": "",
+						"schema": [
 							{
-								"id":"koih1lqx",
-								"name":"userId",
-								"type":"user",
-								"system":true,
-								"required":true,
-								"unique":true,
-								"options":{
-									"maxSelect":1,
-									"cascadeDelete":true
-								}
-							},
-							{
-								"id":"69ycbg3q",
-								"name":"rel",
-								"type":"relation",
-								"system":false,
-								"required":false,
-								"unique":false,
-								"options":{
-									"maxSelect":2,
-									"collectionId":"abe78266-fd4d-4aea-962d-8c0138ac522b",
-									"cascadeDelete":false
+								"id": "x8zzktwe",
+								"name": "name",
+								"type": "text",
+								"system": false,
+								"required": false,
+								"unique": false,
+								"options": {
+									"min": null,
+									"max": null,
+									"pattern": ""
 								}
 							}
 						]
 					},
 					{
-						"id":"3f2888f8-075d-49fe-9d09-ea7e951000dc",
-						"name":"demo",
+						"id":"sz5l5z67tg7gku0",
+						"name":"demo2",
 						"schema":[
 							{
 								"id":"_2hlxbmp",
@@ -308,7 +329,7 @@ func TestCollectionsImportSubmit(t *testing.T) {
 					},
 					{
 						"id": "test_deleted_collection_name_reuse",
-						"name": "demo2",
+						"name": "demo1",
 						"schema": [
 							{
 								"id":"fz6iql2m",
@@ -326,55 +347,126 @@ func TestCollectionsImportSubmit(t *testing.T) {
 				"OnModelAfterUpdate":  2,
 				"OnModelBeforeCreate": 1,
 				"OnModelAfterCreate":  1,
-				"OnModelBeforeDelete": 3,
-				"OnModelAfterDelete":  3,
+				"OnModelBeforeDelete": totalCollections - 2,
+				"OnModelAfterDelete":  totalCollections - 2,
+			},
+		},
+		{
+			name: "lazy system table name error",
+			jsonData: `{
+				"collections": [
+					{
+						"name": "_admins",
+						"schema": [
+							{
+								"id":"fz6iql2m",
+								"name":"active",
+								"type":"bool"
+							}
+						]
+					}
+				]
+			}`,
+			expectError:            true,
+			expectCollectionsCount: totalCollections,
+			expectEvents: map[string]int{
+				"OnModelBeforeCreate": 1,
+			},
+		},
+		{
+			name: "lazy view evaluation",
+			jsonData: `{
+				"collections": [
+					{
+						"name": "view_before",
+						"type": "view",
+						"options": {
+							"query": "select id, active from base_test"
+						}
+					},
+					{
+						"name": "base_test",
+						"schema": [
+							{
+								"id":"fz6iql2m",
+								"name":"active",
+								"type":"bool"
+							}
+						]
+					},
+					{
+						"name": "view_after_new",
+						"type": "view",
+						"options": {
+							"query": "select id, active from base_test"
+						}
+					},
+					{
+						"name": "view_after_old",
+						"type": "view",
+						"options": {
+							"query": "select id from demo1"
+						}
+					}
+				]
+			}`,
+			expectError:            false,
+			expectCollectionsCount: totalCollections + 4,
+			expectEvents: map[string]int{
+				"OnModelBeforeUpdate": 3,
+				"OnModelAfterUpdate":  3,
+				"OnModelBeforeCreate": 4,
+				"OnModelAfterCreate":  4,
 			},
 		},
 	}
 
 	for _, s := range scenarios {
-		testApp, _ := tests.NewTestApp()
-		defer testApp.Cleanup()
+		t.Run(s.name, func(t *testing.T) {
+			testApp, _ := tests.NewTestApp()
+			defer testApp.Cleanup()
 
-		form := forms.NewCollectionsImport(testApp)
+			form := forms.NewCollectionsImport(testApp)
 
-		// load data
-		loadErr := json.Unmarshal([]byte(s.jsonData), form)
-		if loadErr != nil {
-			t.Errorf("[%s] Failed to load form data: %v", s.name, loadErr)
-			continue
-		}
-
-		err := form.Submit()
-
-		hasErr := err != nil
-		if hasErr != s.expectError {
-			t.Errorf("[%s] Expected hasErr to be %v, got %v (%v)", s.name, s.expectError, hasErr, err)
-		}
-
-		// check collections count
-		collections := []*models.Collection{}
-		if err := testApp.Dao().CollectionQuery().All(&collections); err != nil {
-			t.Fatal(err)
-		}
-		if len(collections) != s.expectCollectionsCount {
-			t.Errorf("[%s] Expected %d collections, got %d", s.name, s.expectCollectionsCount, len(collections))
-		}
-
-		// check events
-		if len(testApp.EventCalls) > len(s.expectEvents) {
-			t.Errorf("[%s] Expected events %v, got %v", s.name, s.expectEvents, testApp.EventCalls)
-		}
-		for event, expectedCalls := range s.expectEvents {
-			actualCalls := testApp.EventCalls[event]
-			if actualCalls != expectedCalls {
-				t.Errorf("[%s] Expected event %s to be called %d, got %d", s.name, event, expectedCalls, actualCalls)
+			// load data
+			loadErr := json.Unmarshal([]byte(s.jsonData), form)
+			if loadErr != nil {
+				t.Fatalf("Failed to load form data: %v", loadErr)
 			}
-		}
+
+			err := form.Submit()
+
+			hasErr := err != nil
+			if hasErr != s.expectError {
+				t.Fatalf("Expected hasErr to be %v, got %v (%v)", s.expectError, hasErr, err)
+			}
+
+			// check collections count
+			collections := []*models.Collection{}
+			if err := testApp.Dao().CollectionQuery().All(&collections); err != nil {
+				t.Fatal(err)
+			}
+			if len(collections) != s.expectCollectionsCount {
+				t.Fatalf("Expected %d collections, got %d", s.expectCollectionsCount, len(collections))
+			}
+
+			// check events
+			if len(testApp.EventCalls) > len(s.expectEvents) {
+				t.Fatalf("Expected events %v, got %v", s.expectEvents, testApp.EventCalls)
+			}
+			for event, expectedCalls := range s.expectEvents {
+				actualCalls := testApp.EventCalls[event]
+				if actualCalls != expectedCalls {
+					t.Fatalf("Expected event %s to be called %d, got %d", event, expectedCalls, actualCalls)
+				}
+			}
+		})
 	}
 }
 
 func TestCollectionsImportSubmitInterceptors(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -389,16 +481,16 @@ func TestCollectionsImportSubmitInterceptors(t *testing.T) {
 	testErr := errors.New("test_error")
 
 	interceptor1Called := false
-	interceptor1 := func(next forms.InterceptorNextFunc) forms.InterceptorNextFunc {
-		return func() error {
+	interceptor1 := func(next forms.InterceptorNextFunc[[]*models.Collection]) forms.InterceptorNextFunc[[]*models.Collection] {
+		return func(imports []*models.Collection) error {
 			interceptor1Called = true
-			return next()
+			return next(imports)
 		}
 	}
 
 	interceptor2Called := false
-	interceptor2 := func(next forms.InterceptorNextFunc) forms.InterceptorNextFunc {
-		return func() error {
+	interceptor2 := func(next forms.InterceptorNextFunc[[]*models.Collection]) forms.InterceptorNextFunc[[]*models.Collection] {
+		return func(imports []*models.Collection) error {
 			interceptor2Called = true
 			return testErr
 		}

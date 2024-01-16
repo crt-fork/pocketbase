@@ -6,36 +6,14 @@ import (
 	"fmt"
 	"testing"
 
-	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/pocketbase/pocketbase/forms"
 	"github.com/pocketbase/pocketbase/models"
 	"github.com/pocketbase/pocketbase/tests"
 )
 
-func TestAdminUpsertPanic1(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("The form did not panic")
-		}
-	}()
-
-	forms.NewAdminUpsert(nil, nil)
-}
-
-func TestAdminUpsertPanic2(t *testing.T) {
-	app, _ := tests.NewTestApp()
-	defer app.Cleanup()
-
-	defer func() {
-		if recover() == nil {
-			t.Fatal("The form did not panic")
-		}
-	}()
-
-	forms.NewAdminUpsert(app, nil)
-}
-
 func TestNewAdminUpsert(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -54,125 +32,9 @@ func TestNewAdminUpsert(t *testing.T) {
 	}
 }
 
-func TestAdminUpsertValidate(t *testing.T) {
-	app, _ := tests.NewTestApp()
-	defer app.Cleanup()
+func TestAdminUpsertValidateAndSubmit(t *testing.T) {
+	t.Parallel()
 
-	scenarios := []struct {
-		id              string
-		avatar          int
-		email           string
-		password        string
-		passwordConfirm string
-		expectedErrors  int
-	}{
-		{
-			"",
-			-1,
-			"",
-			"",
-			"",
-			3,
-		},
-		{
-			"",
-			10,
-			"invalid",
-			"12345678",
-			"87654321",
-			4,
-		},
-		{
-			// existing email
-			"2b4a97cc-3f83-4d01-a26b-3d77bc842d3c",
-			3,
-			"test2@example.com",
-			"1234567890",
-			"1234567890",
-			1,
-		},
-		{
-			// mismatching passwords
-			"2b4a97cc-3f83-4d01-a26b-3d77bc842d3c",
-			3,
-			"test@example.com",
-			"1234567890",
-			"1234567891",
-			1,
-		},
-		{
-			// create without setting password
-			"",
-			9,
-			"test_create@example.com",
-			"",
-			"",
-			1,
-		},
-		{
-			// create with existing email
-			"",
-			9,
-			"test@example.com",
-			"1234567890!",
-			"1234567890!",
-			1,
-		},
-		{
-			// update without setting password
-			"2b4a97cc-3f83-4d01-a26b-3d77bc842d3c",
-			3,
-			"test_update@example.com",
-			"",
-			"",
-			0,
-		},
-		{
-			// create with password
-			"",
-			9,
-			"test_create@example.com",
-			"1234567890!",
-			"1234567890!",
-			0,
-		},
-		{
-			// update with password
-			"2b4a97cc-3f83-4d01-a26b-3d77bc842d3c",
-			4,
-			"test_update@example.com",
-			"1234567890",
-			"1234567890",
-			0,
-		},
-	}
-
-	for i, s := range scenarios {
-		admin := &models.Admin{}
-		if s.id != "" {
-			admin, _ = app.Dao().FindAdminById(s.id)
-		}
-
-		form := forms.NewAdminUpsert(app, admin)
-		form.Avatar = s.avatar
-		form.Email = s.email
-		form.Password = s.password
-		form.PasswordConfirm = s.passwordConfirm
-
-		result := form.Validate()
-		errs, ok := result.(validation.Errors)
-		if !ok && result != nil {
-			t.Errorf("(%d) Failed to parse errors %v", i, result)
-			continue
-		}
-
-		if len(errs) != s.expectedErrors {
-			t.Errorf("(%d) Expected %d errors, got %d (%v)", i, s.expectedErrors, len(errs), errs)
-		}
-	}
-}
-
-func TestAdminUpsertSubmit(t *testing.T) {
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -189,7 +51,7 @@ func TestAdminUpsertSubmit(t *testing.T) {
 		},
 		{
 			// update empty
-			"2b4a97cc-3f83-4d01-a26b-3d77bc842d3c",
+			"sywbhecnh46rhm0",
 			`{}`,
 			false,
 		},
@@ -225,7 +87,7 @@ func TestAdminUpsertSubmit(t *testing.T) {
 		},
 		{
 			// update failure - existing email
-			"2b4a97cc-3f83-4d01-a26b-3d77bc842d3c",
+			"sywbhecnh46rhm0",
 			`{
 				"email": "test2@example.com"
 			}`,
@@ -233,7 +95,7 @@ func TestAdminUpsertSubmit(t *testing.T) {
 		},
 		{
 			// update failure - mismatching passwords
-			"2b4a97cc-3f83-4d01-a26b-3d77bc842d3c",
+			"sywbhecnh46rhm0",
 			`{
 				"password":        "1234567890",
 				"passwordConfirm": "1234567891"
@@ -241,16 +103,16 @@ func TestAdminUpsertSubmit(t *testing.T) {
 			true,
 		},
 		{
-			// update succcess - new email
-			"2b4a97cc-3f83-4d01-a26b-3d77bc842d3c",
+			// update success - new email
+			"sywbhecnh46rhm0",
 			`{
 				"email": "test_update@example.com"
 			}`,
 			false,
 		},
 		{
-			// update succcess - new password
-			"2b4a97cc-3f83-4d01-a26b-3d77bc842d3c",
+			// update success - new password
+			"sywbhecnh46rhm0",
 			`{
 				"password":        "1234567890",
 				"passwordConfirm": "1234567890"
@@ -279,10 +141,10 @@ func TestAdminUpsertSubmit(t *testing.T) {
 
 		interceptorCalls := 0
 
-		err := form.Submit(func(next forms.InterceptorNextFunc) forms.InterceptorNextFunc {
-			return func() error {
+		err := form.Submit(func(next forms.InterceptorNextFunc[*models.Admin]) forms.InterceptorNextFunc[*models.Admin] {
+			return func(m *models.Admin) error {
 				interceptorCalls++
-				return next()
+				return next(m)
 			}
 		})
 
@@ -325,6 +187,8 @@ func TestAdminUpsertSubmit(t *testing.T) {
 }
 
 func TestAdminUpsertSubmitInterceptors(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -338,16 +202,16 @@ func TestAdminUpsertSubmitInterceptors(t *testing.T) {
 	interceptorAdminEmail := ""
 
 	interceptor1Called := false
-	interceptor1 := func(next forms.InterceptorNextFunc) forms.InterceptorNextFunc {
-		return func() error {
+	interceptor1 := func(next forms.InterceptorNextFunc[*models.Admin]) forms.InterceptorNextFunc[*models.Admin] {
+		return func(m *models.Admin) error {
 			interceptor1Called = true
-			return next()
+			return next(m)
 		}
 	}
 
 	interceptor2Called := false
-	interceptor2 := func(next forms.InterceptorNextFunc) forms.InterceptorNextFunc {
-		return func() error {
+	interceptor2 := func(next forms.InterceptorNextFunc[*models.Admin]) forms.InterceptorNextFunc[*models.Admin] {
+		return func(m *models.Admin) error {
 			interceptorAdminEmail = admin.Email // to check if the record was filled
 			interceptor2Called = true
 			return testErr
@@ -373,6 +237,8 @@ func TestAdminUpsertSubmitInterceptors(t *testing.T) {
 }
 
 func TestAdminUpsertWithCustomId(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 

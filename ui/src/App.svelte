@@ -10,17 +10,20 @@
     import Toasts from "@/components/base/Toasts.svelte";
     import Toggler from "@/components/base/Toggler.svelte";
     import Confirmation from "@/components/base/Confirmation.svelte";
-    import { pageTitle, appName } from "@/stores/app";
+    import { pageTitle, appName, hideControls } from "@/stores/app";
     import { admin } from "@/stores/admin";
     import { setErrors } from "@/stores/errors";
     import { resetConfirmation } from "@/stores/confirmation";
+    import TinyMCE from "@/components/base/TinyMCE.svelte";
 
     let oldLocation = undefined;
 
     let showAppSidebar = false;
 
+    let isTinyMCEPreloaded = false;
+
     $: if ($admin?.id) {
-        loadAppName();
+        loadSettings();
     }
 
     function handleRouteLoading(e) {
@@ -42,18 +45,21 @@
         replace("/");
     }
 
-    async function loadAppName() {
+    async function loadSettings() {
         if (!$admin?.id) {
             return;
         }
 
         try {
             const settings = await ApiClient.settings.getAll({
-                $cancelKey: "loadAppName",
+                $cancelKey: "initialAppSettings",
             });
             $appName = settings?.meta?.appName || "";
+            $hideControls = !!settings?.meta?.hideControls;
         } catch (err) {
-            console.warn("Failed to load app name.", err);
+            if (!err?.isAbort) {
+                console.warn("Failed to load app settings.", err);
+            }
         }
     }
 
@@ -90,16 +96,6 @@
                     <i class="ri-database-2-line" />
                 </a>
                 <a
-                    href="/users"
-                    class="menu-item"
-                    aria-label="Users"
-                    use:link
-                    use:active={{ path: "/users/?.*", className: "current-route" }}
-                    use:tooltip={{ text: "Users", position: "right" }}
-                >
-                    <i class="ri-group-line" />
-                </a>
-                <a
                     href="/logs"
                     class="menu-item"
                     aria-label="Logs"
@@ -132,10 +128,10 @@
                         <span class="txt">Manage admins</span>
                     </a>
                     <hr />
-                    <div tabindex="0" class="dropdown-item closable" on:click={logout}>
+                    <button type="button" class="dropdown-item closable" on:click={logout}>
                         <i class="ri-logout-circle-line" />
                         <span class="txt">Logout</span>
-                    </div>
+                    </button>
                 </Toggler>
             </figure>
         </aside>
@@ -149,3 +145,14 @@
 </div>
 
 <Confirmation />
+
+{#if showAppSidebar && !isTinyMCEPreloaded}
+    <div class="tinymce-preloader hidden">
+        <TinyMCE
+            conf={CommonHelper.defaultEditorOptions()}
+            on:init={() => {
+                isTinyMCEPreloaded = true;
+            }}
+        />
+    </div>
+{/if}

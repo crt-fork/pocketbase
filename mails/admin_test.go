@@ -9,6 +9,8 @@ import (
 )
 
 func TestSendAdminPasswordReset(t *testing.T) {
+	t.Parallel()
+
 	testApp, _ := tests.NewTestApp()
 	defer testApp.Cleanup()
 
@@ -30,8 +32,8 @@ func TestSendAdminPasswordReset(t *testing.T) {
 		"http://localhost:8090/_/#/confirm-password-reset/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.",
 	}
 	for _, part := range expectedParts {
-		if !strings.Contains(testApp.TestMailer.LastHtmlBody, part) {
-			t.Fatalf("Couldn't find %s \nin\n %s", part, testApp.TestMailer.LastHtmlBody)
+		if !strings.Contains(testApp.TestMailer.LastMessage.HTML, part) {
+			t.Fatalf("Couldn't find %s \nin\n %s", part, testApp.TestMailer.LastMessage.HTML)
 		}
 	}
 }

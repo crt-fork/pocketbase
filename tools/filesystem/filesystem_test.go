@@ -1,11 +1,15 @@
 package filesystem_test
 
 import (
+	"bytes"
 	"image"
 	"image/png"
+	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/tools/filesystem"
@@ -128,6 +132,93 @@ func TestFileSystemDeletePrefix(t *testing.T) {
 	}
 }
 
+func TestFileSystemUploadMultipart(t *testing.T) {
+	dir := createTestDir(t)
+	defer os.RemoveAll(dir)
+
+	// create multipart form file
+	body := new(bytes.Buffer)
+	mp := multipart.NewWriter(body)
+	w, err := mp.CreateFormFile("test", "test")
+	if err != nil {
+		t.Fatalf("Failed creating form file: %v", err)
+	}
+	w.Write([]byte("demo"))
+	mp.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/", body)
+	req.Header.Add("Content-Type", mp.FormDataContentType())
+
+	file, fh, err := req.FormFile("test")
+	if err != nil {
+		t.Fatalf("Failed to fetch form file: %v", err)
+	}
+	defer file.Close()
+	// ---
+
+	fs, err := filesystem.NewLocal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.Close()
+
+	fileKey := "newdir/newkey.txt"
+
+	uploadErr := fs.UploadMultipart(fh, fileKey)
+	if uploadErr != nil {
+		t.Fatal(uploadErr)
+	}
+
+	if exists, _ := fs.Exists(fileKey); !exists {
+		t.Fatalf("Expected %q to exist", fileKey)
+	}
+
+	attrs, err := fs.Attributes(fileKey)
+	if err != nil {
+		t.Fatalf("Failed to fetch file attributes: %v", err)
+	}
+	if name, ok := attrs.Metadata["original-filename"]; !ok || name != "test" {
+		t.Fatalf("Expected original-filename to be %q, got %q", "test", name)
+	}
+}
+
+func TestFileSystemUploadFile(t *testing.T) {
+	dir := createTestDir(t)
+	defer os.RemoveAll(dir)
+
+	fs, err := filesystem.NewLocal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.Close()
+
+	fileKey := "newdir/newkey.txt"
+
+	file, err := filesystem.NewFileFromPath(filepath.Join(dir, "image.svg"))
+	if err != nil {
+		t.Fatalf("Failed to load test file: %v", err)
+	}
+
+	file.OriginalName = "test.txt"
+
+	uploadErr := fs.UploadFile(file, fileKey)
+	if uploadErr != nil {
+		t.Fatal(uploadErr)
+	}
+
+	if exists, _ := fs.Exists(fileKey); !exists {
+		t.Fatalf("Expected %q to exist", fileKey)
+	}
+
+	attrs, err := fs.Attributes(fileKey)
+	if err != nil {
+		t.Fatalf("Failed to fetch file attributes: %v", err)
+	}
+	if name, ok := attrs.Metadata["original-filename"]; !ok || name != file.OriginalName {
+		t.Fatalf("Expected original-filename to be %q, got %q", file.OriginalName, name)
+	}
+}
+
 func TestFileSystemUpload(t *testing.T) {
 	dir := createTestDir(t)
 	defer os.RemoveAll(dir)
@@ -138,13 +229,15 @@ func TestFileSystemUpload(t *testing.T) {
 	}
 	defer fs.Close()
 
-	uploadErr := fs.Upload([]byte("demo"), "newdir/newkey.txt")
+	fileKey := "newdir/newkey.txt"
+
+	uploadErr := fs.Upload([]byte("demo"), fileKey)
 	if uploadErr != nil {
 		t.Fatal(uploadErr)
 	}
 
-	if exists, _ := fs.Exists("newdir/newkey.txt"); !exists {
-		t.Fatalf("Expected newdir/newkey.txt to exist")
+	if exists, _ := fs.Exists(fileKey); !exists {
+		t.Fatalf("Expected %s to exist", fileKey)
 	}
 }
 
@@ -158,9 +251,14 @@ func TestFileSystemServe(t *testing.T) {
 	}
 	defer fs.Close()
 
+	csp := "default-src 'none'; media-src 'self'; style-src 'unsafe-inline'; sandbox"
+	cacheControl := "max-age=2592000, stale-while-revalidate=86400"
+
 	scenarios := []struct {
 		path          string
 		name          string
+		query         map[string]string
+		headers       map[string]string
 		expectError   bool
 		expectHeaders map[string]string
 	}{
@@ -168,6 +266,8 @@ func TestFileSystemServe(t *testing.T) {
 			// missing
 			"missing.txt",
 			"test_name.txt",
+			nil,
+			nil,
 			true,
 			nil,
 		},
@@ -175,59 +275,313 @@ func TestFileSystemServe(t *testing.T) {
 			// existing regular file
 			"test/sub1.txt",
 			"test_name.txt",
+			nil,
+			nil,
 			false,
 			map[string]string{
 				"Content-Disposition":     "attachment; filename=test_name.txt",
 				"Content-Type":            "application/octet-stream",
 				"Content-Length":          "0",
-				"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+				"Content-Security-Policy": csp,
+				"Cache-Control":           cacheControl,
 			},
 		},
 		{
 			// png inline
 			"image.png",
 			"test_name.png",
+			nil,
+			nil,
 			false,
 			map[string]string{
 				"Content-Disposition":     "inline; filename=test_name.png",
 				"Content-Type":            "image/png",
 				"Content-Length":          "73",
-				"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+				"Content-Security-Policy": csp,
+				"Cache-Control":           cacheControl,
+			},
+		},
+		{
+			// png with forced attachment
+			"image.png",
+			"test_name_download.png",
+			map[string]string{"download": "1"},
+			nil,
+			false,
+			map[string]string{
+				"Content-Disposition":     "attachment; filename=test_name_download.png",
+				"Content-Type":            "image/png",
+				"Content-Length":          "73",
+				"Content-Security-Policy": csp,
+				"Cache-Control":           cacheControl,
 			},
 		},
 		{
 			// svg exception
 			"image.svg",
 			"test_name.svg",
+			nil,
+			nil,
 			false,
 			map[string]string{
 				"Content-Disposition":     "attachment; filename=test_name.svg",
 				"Content-Type":            "image/svg+xml",
 				"Content-Length":          "0",
-				"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+				"Content-Security-Policy": csp,
+				"Cache-Control":           cacheControl,
+			},
+		},
+		{
+			// css exception
+			"style.css",
+			"test_name.css",
+			nil,
+			nil,
+			false,
+			map[string]string{
+				"Content-Disposition":     "attachment; filename=test_name.css",
+				"Content-Type":            "text/css",
+				"Content-Length":          "0",
+				"Content-Security-Policy": csp,
+				"Cache-Control":           cacheControl,
+			},
+		},
+		{
+			// custom header
+			"test/sub2.txt",
+			"test_name.txt",
+			nil,
+			map[string]string{
+				"Content-Disposition":     "1",
+				"Content-Type":            "2",
+				"Content-Length":          "3",
+				"Content-Security-Policy": "4",
+				"Cache-Control":           "5",
+				"X-Custom":                "6",
+			},
+			false,
+			map[string]string{
+				"Content-Disposition":     "1",
+				"Content-Type":            "2",
+				"Content-Length":          "0", // overwriten by http.ServeContent
+				"Content-Security-Policy": "4",
+				"Cache-Control":           "5",
+				"X-Custom":                "6",
 			},
 		},
 	}
 
-	for _, scenario := range scenarios {
-		r := httptest.NewRecorder()
+	for _, s := range scenarios {
+		res := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/", nil)
 
-		err := fs.Serve(r, scenario.path, scenario.name)
+		query := req.URL.Query()
+		for k, v := range s.query {
+			query.Set(k, v)
+		}
+		req.URL.RawQuery = query.Encode()
+
+		for k, v := range s.headers {
+			res.Header().Set(k, v)
+		}
+
+		err := fs.Serve(res, req, s.path, s.name)
 		hasErr := err != nil
 
-		if hasErr != scenario.expectError {
-			t.Errorf("(%s) Expected hasError %v, got %v", scenario.path, scenario.expectError, hasErr)
+		if hasErr != s.expectError {
+			t.Errorf("(%s) Expected hasError %v, got %v (%v)", s.path, s.expectError, hasErr, err)
 			continue
 		}
 
-		result := r.Result()
+		if s.expectError {
+			continue
+		}
 
-		for hName, hValue := range scenario.expectHeaders {
+		result := res.Result()
+
+		for hName, hValue := range s.expectHeaders {
 			v := result.Header.Get(hName)
 			if v != hValue {
-				t.Errorf("(%s) Expected value %q for header %q, got %q", scenario.path, hValue, hName, v)
+				t.Errorf("(%s) Expected value %q for header %q, got %q", s.path, hValue, hName, v)
 			}
 		}
+	}
+}
+
+func TestFileSystemGetFile(t *testing.T) {
+	dir := createTestDir(t)
+	defer os.RemoveAll(dir)
+
+	fs, err := filesystem.NewLocal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.Close()
+
+	f, err := fs.GetFile("image.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	if f == nil {
+		t.Fatal("File is supposed to be found")
+	}
+}
+
+func TestFileSystemCopy(t *testing.T) {
+	dir := createTestDir(t)
+	defer os.RemoveAll(dir)
+
+	fs, err := filesystem.NewLocal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.Close()
+
+	src := "image.png"
+	dst := "image.png_copy"
+
+	// copy missing file
+	if err := fs.Copy(dst, src); err == nil {
+		t.Fatalf("Expected to fail copying %q to %q, got nil", dst, src)
+	}
+
+	// copy existing file
+	if err := fs.Copy(src, dst); err != nil {
+		t.Fatalf("Failed to copy %q to %q: %v", src, dst, err)
+	}
+	f, err := fs.GetFile(dst)
+	defer f.Close()
+	if err != nil {
+		t.Fatalf("Missing copied file %q: %v", dst, err)
+	}
+	if f.Size() != 73 {
+		t.Fatalf("Expected file size %d, got %d", 73, f.Size())
+	}
+}
+
+func TestFileSystemList(t *testing.T) {
+	dir := createTestDir(t)
+	defer os.RemoveAll(dir)
+
+	fs, err := filesystem.NewLocal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.Close()
+
+	scenarios := []struct {
+		prefix   string
+		expected []string
+	}{
+		{
+			"",
+			[]string{
+				"image.png",
+				"image.svg",
+				"image_! noext",
+				"style.css",
+				"test/sub1.txt",
+				"test/sub2.txt",
+			},
+		},
+		{
+			"test",
+			[]string{
+				"test/sub1.txt",
+				"test/sub2.txt",
+			},
+		},
+		{
+			"missing",
+			[]string{},
+		},
+	}
+
+	for _, s := range scenarios {
+		objs, err := fs.List(s.prefix)
+		if err != nil {
+			t.Fatalf("[%s] %v", s.prefix, err)
+		}
+
+		if len(s.expected) != len(objs) {
+			t.Fatalf("[%s] Expected %d files, got \n%v", s.prefix, len(s.expected), objs)
+		}
+
+	ObjsLoop:
+		for _, obj := range objs {
+			for _, name := range s.expected {
+				if name == obj.Key {
+					continue ObjsLoop
+				}
+			}
+
+			t.Fatalf("[%s] Unexpected file %q", s.prefix, obj.Key)
+		}
+	}
+}
+
+func TestFileSystemServeSingleRange(t *testing.T) {
+	dir := createTestDir(t)
+	defer os.RemoveAll(dir)
+
+	fs, err := filesystem.NewLocal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.Close()
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Add("Range", "bytes=0-20")
+
+	if err := fs.Serve(res, req, "image.png", "image.png"); err != nil {
+		t.Fatal(err)
+	}
+
+	result := res.Result()
+
+	if result.StatusCode != http.StatusPartialContent {
+		t.Fatalf("Expected StatusCode %d, got %d", http.StatusPartialContent, result.StatusCode)
+	}
+
+	expectedRange := "bytes 0-20/73"
+	if cr := result.Header.Get("Content-Range"); cr != expectedRange {
+		t.Fatalf("Expected Content-Range %q, got %q", expectedRange, cr)
+	}
+
+	if l := result.Header.Get("Content-Length"); l != "21" {
+		t.Fatalf("Expected Content-Length %v, got %v", 21, l)
+	}
+}
+
+func TestFileSystemServeMultiRange(t *testing.T) {
+	dir := createTestDir(t)
+	defer os.RemoveAll(dir)
+
+	fs, err := filesystem.NewLocal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.Close()
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Add("Range", "bytes=0-20, 25-30")
+
+	if err := fs.Serve(res, req, "image.png", "image.png"); err != nil {
+		t.Fatal(err)
+	}
+
+	result := res.Result()
+
+	if result.StatusCode != http.StatusPartialContent {
+		t.Fatalf("Expected StatusCode %d, got %d", http.StatusPartialContent, result.StatusCode)
+	}
+
+	if ct := result.Header.Get("Content-Type"); !strings.HasPrefix(ct, "multipart/byteranges; boundary=") {
+		t.Fatalf("Expected Content-Type to be multipart/byteranges, got %v", ct)
 	}
 }
 
@@ -260,7 +614,7 @@ func TestFileSystemCreateThumb(t *testing.T) {
 	}
 
 	for i, scenario := range scenarios {
-		err := fs.CreateThumb(scenario.file, scenario.thumb, "100x100", scenario.cropCenter)
+		err := fs.CreateThumb(scenario.file, scenario.thumb, "100x100")
 
 		hasErr := err != nil
 		if hasErr != scenario.expectError {
@@ -290,36 +644,48 @@ func createTestDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 
-	file1, err := os.OpenFile(filepath.Join(dir, "test/sub1.txt"), os.O_WRONLY|os.O_CREATE, 0666)
+	file1, err := os.OpenFile(filepath.Join(dir, "test/sub1.txt"), os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		t.Fatal(err)
 	}
 	file1.Close()
 
-	file2, err := os.OpenFile(filepath.Join(dir, "test/sub2.txt"), os.O_WRONLY|os.O_CREATE, 0666)
+	file2, err := os.OpenFile(filepath.Join(dir, "test/sub2.txt"), os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		t.Fatal(err)
 	}
 	file2.Close()
 
-	file3, err := os.OpenFile(filepath.Join(dir, "image.png"), os.O_WRONLY|os.O_CREATE, 0666)
+	file3, err := os.OpenFile(filepath.Join(dir, "image.png"), os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// tiny 1x1 png
-	imgRect := image.Rect(0, 0, 1, 1)
+	imgRect := image.Rect(0, 0, 1, 1) // tiny 1x1 png
 	png.Encode(file3, imgRect)
 	file3.Close()
-	err2 := os.WriteFile(filepath.Join(dir, "image.png.attrs"), []byte(`{"user.cache_control":"","user.content_disposition":"","user.content_encoding":"","user.content_language":"","user.content_type":"image/png","user.metadata":null}`), 0666)
+	err2 := os.WriteFile(filepath.Join(dir, "image.png.attrs"), []byte(`{"user.cache_control":"","user.content_disposition":"","user.content_encoding":"","user.content_language":"","user.content_type":"image/png","user.metadata":null}`), 0644)
 	if err2 != nil {
 		t.Fatal(err2)
 	}
 
-	file4, err := os.OpenFile(filepath.Join(dir, "image.svg"), os.O_WRONLY|os.O_CREATE, 0666)
+	file4, err := os.OpenFile(filepath.Join(dir, "image.svg"), os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		t.Fatal(err)
 	}
 	file4.Close()
+
+	file5, err := os.OpenFile(filepath.Join(dir, "style.css"), os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file5.Close()
+
+	file6, err := os.OpenFile(filepath.Join(dir, "image_! noext"), os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	png.Encode(file6, image.Rect(0, 0, 1, 1)) // tiny 1x1 png
+	file6.Close()
 
 	return dir
 }

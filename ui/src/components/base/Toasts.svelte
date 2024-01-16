@@ -1,5 +1,5 @@
 <script>
-    import { fade } from "svelte/transition";
+    import { fade, slide } from "svelte/transition";
     import { flip } from "svelte/animate";
     import { toasts, removeToast } from "@/stores/toasts";
 </script>
@@ -12,7 +12,8 @@
             class:alert-success={toast.type == "success"}
             class:alert-danger={toast.type == "error"}
             class:alert-warning={toast.type == "warning"}
-            transition:fade={{ duration: 150 }}
+            in:slide={{ duration: 150 }}
+            out:fade={{ duration: 150 }}
             animate:flip={{ duration: 150 }}
         >
             <div class="icon">
@@ -29,9 +30,9 @@
 
             <div class="content">{toast.message}</div>
 
-            <div class="close" on:click|preventDefault={() => removeToast(toast)}>
+            <button type="button" class="close" on:click|preventDefault={() => removeToast(toast)}>
                 <i class="ri-close-line" />
-            </div>
+            </button>
         </div>
     {/each}
 </div>

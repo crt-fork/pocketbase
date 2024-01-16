@@ -4,7 +4,6 @@ import ApiClient             from "@/utils/ApiClient";
 import PageIndex             from "@/components/PageIndex.svelte";
 import PageLogs              from "@/components/logs/PageLogs.svelte";
 import PageRecords           from "@/components/records/PageRecords.svelte";
-import PageUsers             from "@/components/users/PageUsers.svelte";
 import PageAdmins            from "@/components/admins/PageAdmins.svelte";
 import PageAdminLogin        from "@/components/admins/PageAdminLogin.svelte";
 import PageApplication       from "@/components/settings/PageApplication.svelte";
@@ -14,6 +13,7 @@ import PageAuthProviders     from "@/components/settings/PageAuthProviders.svelt
 import PageTokenOptions      from "@/components/settings/PageTokenOptions.svelte";
 import PageExportCollections from "@/components/settings/PageExportCollections.svelte";
 import PageImportCollections from "@/components/settings/PageImportCollections.svelte";
+import PageBackups           from "@/components/settings/PageBackups.svelte";
 
 const baseConditions = [
     async (details) => {
@@ -56,48 +56,6 @@ const routes = {
         component: PageLogs,
         conditions: baseConditions.concat([(_) => ApiClient.authStore.isValid]),
         userData: { showAppSidebar: true },
-    }),
-
-    "/users": wrap({
-        component:  PageUsers,
-        conditions: baseConditions.concat([(_) => ApiClient.authStore.isValid]),
-        userData: { showAppSidebar: true },
-    }),
-
-    "/users/confirm-password-reset/:token": wrap({
-        asyncComponent:  () => import("@/components/users/PageUserConfirmPasswordReset.svelte"),
-        conditions: baseConditions.concat([
-            () => {
-                // ensure that there is no authenticated user/admin model
-                ApiClient.logout(false);
-                return true;
-            },
-        ]),
-        userData: { showAppSidebar: false },
-    }),
-
-    "/users/confirm-verification/:token": wrap({
-        asyncComponent:  () => import("@/components/users/PageUserConfirmVerification.svelte"),
-        conditions: baseConditions.concat([
-            () => {
-                // ensure that there is no authenticated user/admin model
-                ApiClient.logout(false);
-                return true;
-            },
-        ]),
-        userData: { showAppSidebar: false },
-    }),
-
-    "/users/confirm-email-change/:token": wrap({
-        asyncComponent:  () => import("@/components/users/PageUserConfirmEmailChange.svelte"),
-        conditions: baseConditions.concat([
-            () => {
-                // ensure that there is no authenticated user/admin model
-                ApiClient.logout(false);
-                return true;
-            },
-        ]),
-        userData: { showAppSidebar: false },
     }),
 
     "/settings": wrap({
@@ -148,7 +106,59 @@ const routes = {
         userData: { showAppSidebar: true },
     }),
 
-    // fallback
+    "/settings/backups": wrap({
+        component:  PageBackups,
+        conditions: baseConditions.concat([(_) => ApiClient.authStore.isValid]),
+        userData: { showAppSidebar: true },
+    }),
+
+    // ---------------------------------------------------------------
+    // Records email confirmation actions
+    // ---------------------------------------------------------------
+
+    // @deprecated
+    "/users/confirm-password-reset/:token": wrap({
+        asyncComponent:  () => import("@/components/records/PageRecordConfirmPasswordReset.svelte"),
+        conditions: baseConditions,
+        userData: { showAppSidebar: false },
+    }),
+    "/auth/confirm-password-reset/:token": wrap({
+        asyncComponent:  () => import("@/components/records/PageRecordConfirmPasswordReset.svelte"),
+        conditions: baseConditions,
+        userData: { showAppSidebar: false },
+    }),
+
+    // @deprecated
+    "/users/confirm-verification/:token": wrap({
+        asyncComponent:  () => import("@/components/records/PageRecordConfirmVerification.svelte"),
+        conditions: baseConditions,
+        userData: { showAppSidebar: false },
+    }),
+    "/auth/confirm-verification/:token": wrap({
+        asyncComponent:  () => import("@/components/records/PageRecordConfirmVerification.svelte"),
+        conditions: baseConditions,
+        userData: { showAppSidebar: false },
+    }),
+
+    // @deprecated
+    "/users/confirm-email-change/:token": wrap({
+        asyncComponent:  () => import("@/components/records/PageRecordConfirmEmailChange.svelte"),
+        conditions: baseConditions,
+        userData: { showAppSidebar: false },
+    }),
+    "/auth/confirm-email-change/:token": wrap({
+        asyncComponent:  () => import("@/components/records/PageRecordConfirmEmailChange.svelte"),
+        conditions: baseConditions,
+        userData: { showAppSidebar: false },
+    }),
+
+    "/auth/oauth2-redirect": wrap({
+        asyncComponent:  () => import("@/components/records/PageOAuth2Redirect.svelte"),
+        conditions: baseConditions,
+        userData: { showAppSidebar: false },
+    }),
+
+    // catch-all fallback
     "*": wrap({
         component: PageIndex,
         userData: { showAppSidebar: false },
